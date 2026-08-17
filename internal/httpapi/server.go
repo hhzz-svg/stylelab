@@ -32,11 +32,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/auth/register", s.handleRegister)
 	s.mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
-		s.mux.HandleFunc("GET /api/me", s.handleMe)
-		s.mux.HandleFunc("PUT /api/me/llm-keys", s.handlePutLLMKey)
-		s.mux.HandleFunc("GET /api/me/llm-keys", s.handleListLLMKeys)
-		s.mux.HandleFunc("DELETE /api/me/llm-keys/{provider}", s.handleDeleteLLMKey)
-	}
+	s.mux.HandleFunc("GET /api/me", s.handleMe)
+	s.mux.HandleFunc("PUT /api/me/llm-keys", s.handlePutLLMKey)
+	s.mux.HandleFunc("GET /api/me/llm-keys", s.handleListLLMKeys)
+	s.mux.HandleFunc("DELETE /api/me/llm-keys/{provider}", s.handleDeleteLLMKey)
+	s.mux.HandleFunc("POST /api/projects", s.handleCreateProject)
+	s.mux.HandleFunc("GET /api/projects", s.handleListProjects)
+	s.mux.HandleFunc("GET /api/projects/{id}", s.handleGetProject)
+	s.mux.HandleFunc("DELETE /api/projects/{id}", s.handleDeleteProject)
+}
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

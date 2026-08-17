@@ -277,32 +277,32 @@ func TestLLMKeysPutGetDelete(t *testing.T) {
 	if row["base_url"] != "https://api.openai.com/v1" {
 		t.Fatalf("GET base_url: %v", row["base_url"])
 	}
-		if row["last4"] != wantLast4 {
-			t.Fatalf("GET last4: got %v want %s", row["last4"], wantLast4)
-		}
-
-		del, err := deleteReq(t, c, srv.URL+"/api/me/llm-keys/openai")
-		if err != nil {
-			t.Fatalf("DELETE: %v", err)
-		}
-		del.Body.Close()
-		if del.StatusCode != http.StatusNoContent {
-			t.Fatalf("DELETE status: %d", del.StatusCode)
-		}
-
-		get, err = c.Get(srv.URL + "/api/me/llm-keys")
-		if err != nil {
-			t.Fatalf("GET after delete: %v", err)
-		}
-		getRaw, getGot = decodeJSONRaw(t, get)
-		if get.StatusCode != http.StatusOK {
-			t.Fatalf("GET after delete status: %d body=%s", get.StatusCode, getRaw)
-		}
-		keys, ok = getGot["keys"].([]any)
-		if !ok || len(keys) != 0 {
-			t.Fatalf("expected empty keys after delete: %v", getGot["keys"])
-		}
+	if row["last4"] != wantLast4 {
+		t.Fatalf("GET last4: got %v want %s", row["last4"], wantLast4)
 	}
+
+	del, err := deleteReq(t, c, srv.URL+"/api/me/llm-keys/openai")
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	del.Body.Close()
+	if del.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE status: %d", del.StatusCode)
+	}
+
+	get, err = c.Get(srv.URL + "/api/me/llm-keys")
+	if err != nil {
+		t.Fatalf("GET after delete: %v", err)
+	}
+	getRaw, getGot = decodeJSONRaw(t, get)
+	if get.StatusCode != http.StatusOK {
+		t.Fatalf("GET after delete status: %d body=%s", get.StatusCode, getRaw)
+	}
+	keys, ok = getGot["keys"].([]any)
+	if !ok || len(keys) != 0 {
+		t.Fatalf("expected empty keys after delete: %v", getGot["keys"])
+	}
+}
 
 func TestLLMKeysValidation(t *testing.T) {
 	srv := newTestServer(t)
@@ -334,6 +334,215 @@ func TestLLMKeysRequireAuth(t *testing.T) {
 	got := decodeJSON(t, resp)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("PUT unauth status: %d body=%v", resp.StatusCode, got)
+	}
+	assertAPIError(t, got, "unauthorized")
+}
+
+func TestProjectsCRUD(t *testing.T) {
+	srv := newTestServer(t)
+	c := clientWithJar(t)
+	reg := postJSON(t, c, srv.URL+"/api/auth/register", `{"email":"owner@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", reg.StatusCode)
+	}
+
+	list, err := c.Get(srv.URL + "/api/projects")
+	if err != nil {
+		t.Fatalf("GET empty list: %v", err)
+	}
+	got := decodeJSON(t, list)
+	if list.StatusCode != http.StatusOK {
+		t.Fatalf("empty list status: %d body=%v", list.StatusCode, got)
+	}
+	projects, ok := got["projects"].([]any)
+	if !ok || len(projects) != 0 {
+		t.Fatalf("expected empty projects: %v", got["projects"])
+	}
+
+	create := postJSON(t, c, srv.URL+"/api/projects", `{"name":"风格实验"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create status: %d body=%v", create.StatusCode, created)
+	}
+	id, _ := created["id"].(string)
+	if !strings.HasPrefix(id, "prj_") {
+		t.Fatalf("id prefix: %v", created["id"])
+	}
+	if created["name"] != "风格实验" {
+		t.Fatalf("create name: %v", created["name"])
+	}
+	if created["created_at"] == nil || created["created_at"] == "" {
+		t.Fatalf("create missing created_at: %v", created)
+	}
+
+	list, err = c.Get(srv.URL + "/api/projects")
+	if err != nil {
+		t.Fatalf("GET list: %v", err)
+	}
+	got = decodeJSON(t, list)
+	if list.StatusCode != http.StatusOK {
+		t.Fatalf("list status: %d body=%v", list.StatusCode, got)
+	}
+	projects, ok = got["projects"].([]any)
+	if !ok || len(projects) != 1 {
+		t.Fatalf("list projects: %v", got["projects"])
+	}
+	row, _ := projects[0].(map[string]any)
+	if row["id"] != id || row["name"] != "风格实验" {
+		t.Fatalf("list row: %v", row)
+	}
+
+	get, err := c.Get(srv.URL + "/api/projects/" + id)
+	if err != nil {
+		t.Fatalf("GET one: %v", err)
+	}
+	got = decodeJSON(t, get)
+	if get.StatusCode != http.StatusOK {
+		t.Fatalf("get status: %d body=%v", get.StatusCode, got)
+	}
+	if got["id"] != id || got["name"] != "风格实验" {
+		t.Fatalf("get body: %v", got)
+	}
+
+	del, err := deleteReq(t, c, srv.URL+"/api/projects/"+id)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	del.Body.Close()
+	if del.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status: %d", del.StatusCode)
+	}
+
+	get, err = c.Get(srv.URL + "/api/projects/" + id)
+	if err != nil {
+		t.Fatalf("GET after delete: %v", err)
+	}
+	got = decodeJSON(t, get)
+	if get.StatusCode != http.StatusNotFound {
+		t.Fatalf("get after delete status: %d body=%v", get.StatusCode, got)
+	}
+	assertAPIError(t, got, "not_found")
+}
+
+func TestProjectsCrossUser404(t *testing.T) {
+	srv := newTestServer(t)
+	owner := clientWithJar(t)
+	other := clientWithJar(t)
+
+	reg := postJSON(t, owner, srv.URL+"/api/auth/register", `{"email":"a@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("owner register: %d", reg.StatusCode)
+	}
+	reg = postJSON(t, other, srv.URL+"/api/auth/register", `{"email":"b@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("other register: %d", reg.StatusCode)
+	}
+
+	create := postJSON(t, owner, srv.URL+"/api/projects", `{"name":"owner only"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create status: %d body=%v", create.StatusCode, created)
+	}
+	id, _ := created["id"].(string)
+	if id == "" {
+		t.Fatalf("missing id: %v", created)
+	}
+
+	list, err := other.Get(srv.URL + "/api/projects")
+	if err != nil {
+		t.Fatalf("other list: %v", err)
+	}
+	got := decodeJSON(t, list)
+	if list.StatusCode != http.StatusOK {
+		t.Fatalf("other list status: %d body=%v", list.StatusCode, got)
+	}
+	projects, ok := got["projects"].([]any)
+	if !ok || len(projects) != 0 {
+		t.Fatalf("other must not see owner projects: %v", got["projects"])
+	}
+
+	get, err := other.Get(srv.URL + "/api/projects/" + id)
+	if err != nil {
+		t.Fatalf("other get: %v", err)
+	}
+	got = decodeJSON(t, get)
+	if get.StatusCode != http.StatusNotFound {
+		t.Fatalf("other get status: %d body=%v (must not leak)", get.StatusCode, got)
+	}
+	assertAPIError(t, got, "not_found")
+
+	del, err := deleteReq(t, other, srv.URL+"/api/projects/"+id)
+	if err != nil {
+		t.Fatalf("other delete: %v", err)
+	}
+	got = decodeJSON(t, del)
+	if del.StatusCode != http.StatusNotFound {
+		t.Fatalf("other delete status: %d body=%v (must not leak)", del.StatusCode, got)
+	}
+	assertAPIError(t, got, "not_found")
+
+	get, err = owner.Get(srv.URL + "/api/projects/" + id)
+	if err != nil {
+		t.Fatalf("owner get after other delete: %v", err)
+	}
+	got = decodeJSON(t, get)
+	if get.StatusCode != http.StatusOK {
+		t.Fatalf("owner project should still exist: %d body=%v", get.StatusCode, got)
+	}
+}
+
+func TestProjectsNameValidation(t *testing.T) {
+	srv := newTestServer(t)
+	c := clientWithJar(t)
+	reg := postJSON(t, c, srv.URL+"/api/auth/register", `{"email":"names@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", reg.StatusCode)
+	}
+
+	resp := postJSON(t, c, srv.URL+"/api/projects", `{"name":""}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty name status: %d body=%v", resp.StatusCode, got)
+	}
+	assertAPIError(t, got, "invalid")
+
+	resp = postJSON(t, c, srv.URL+"/api/projects", `{"name":"`+strings.Repeat("字", 81)+`"}`)
+	got = decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("81 runes status: %d body=%v", resp.StatusCode, got)
+	}
+	assertAPIError(t, got, "invalid")
+
+	resp = postJSON(t, c, srv.URL+"/api/projects", `{"name":"`+strings.Repeat("字", 80)+`"}`)
+	got = decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("80 runes status: %d body=%v", resp.StatusCode, got)
+	}
+	if utf8.RuneCountInString(got["name"].(string)) != 80 {
+		t.Fatalf("80-rune name not stored: %v", got["name"])
+	}
+}
+
+func TestProjectsRequireAuth(t *testing.T) {
+	srv := newTestServer(t)
+	resp := postJSON(t, http.DefaultClient, srv.URL+"/api/projects", `{"name":"x"}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("POST unauth status: %d body=%v", resp.StatusCode, got)
+	}
+	assertAPIError(t, got, "unauthorized")
+
+	resp, err := http.Get(srv.URL + "/api/projects")
+	if err != nil {
+		t.Fatalf("GET list unauth: %v", err)
+	}
+	got = decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET list unauth status: %d body=%v", resp.StatusCode, got)
 	}
 	assertAPIError(t, got, "unauthorized")
 }

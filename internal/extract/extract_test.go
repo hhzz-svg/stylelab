@@ -19,6 +19,7 @@ import (
 	"stylelab/internal/cryptokey"
 	"stylelab/internal/extract"
 	"stylelab/internal/ids"
+	"stylelab/internal/job"
 	"stylelab/internal/llm"
 	"stylelab/internal/store"
 	"stylelab/internal/stylestat"
@@ -93,6 +94,52 @@ func TestRunPersistsCardAndMarksSmallSample(t *testing.T) {
 	}
 	if !strings.Contains(factsJSON, `"sample_too_small"`) {
 		t.Fatalf("persisted facts missing sample_too_small: %s", factsJSON)
+	}
+}
+
+func TestJobHandlerResultHasCardID(t *testing.T) {
+	st, dataDir, master, uid, pid := openExtractStore(t)
+	text := "第一章\n春风过境。\n\n第二章\n夏雨初歇。"
+	assetID := insertAsset(t, st, dataDir, pid, "sample.txt", text)
+	srv := fakeLLMServer(t, validExtractJSON())
+	insertLLMKey(t, st, master, uid, "openai", srv.URL, "sk-test-key")
+
+	payload, err := json.Marshal(extract.ExtractInput{
+		ProjectID: pid,
+		AssetIDs:  []string{assetID},
+		Name:      "节奏样本",
+		Model:     "gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	h := extract.JobHandler(st, &llm.Client{HTTP: srv.Client()}, master)
+	result, err := h(context.Background(), job.Record{
+		UserID:    uid,
+		ProjectID: pid,
+		Kind:      job.KindExtract,
+		Payload:   payload,
+	}, func(int, string) {})
+	if err != nil {
+		t.Fatalf("JobHandler: %v", err)
+	}
+	var out struct {
+		CardID string `json:"card_id"`
+	}
+	if err := json.Unmarshal(result, &out); err != nil {
+		t.Fatalf("result json %s: %v", result, err)
+	}
+	if !ids.Valid(out.CardID, "crd_") {
+		t.Fatalf("card_id: %q", out.CardID)
+	}
+
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM style_cards WHERE id = ?`, out.CardID).Scan(&n); err != nil {
+		t.Fatalf("count cards: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("style_cards count: %d", n)
 	}
 }
 

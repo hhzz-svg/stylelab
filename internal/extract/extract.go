@@ -15,6 +15,7 @@ import (
 	"stylelab/internal/card"
 	"stylelab/internal/cryptokey"
 	"stylelab/internal/ids"
+	"stylelab/internal/job"
 	"stylelab/internal/llm"
 	"stylelab/internal/store"
 	"stylelab/internal/stylestat"
@@ -42,6 +43,21 @@ type llmKey struct {
 	Provider string
 	BaseURL  string
 	APIKey   string
+}
+
+func JobHandler(st *store.Store, client *llm.Client, master []byte) job.Handler {
+	return func(ctx context.Context, rec job.Record, prog func(int, string)) (json.RawMessage, error) {
+		var in ExtractInput
+		if err := json.Unmarshal(rec.Payload, &in); err != nil {
+			return nil, err
+		}
+		in.ProjectID = rec.ProjectID
+		c, err := Run(ctx, st, client, master, rec.UserID, in, prog)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]string{"card_id": c.ID})
+	}
 }
 
 func Run(ctx context.Context, st *store.Store, client *llm.Client, master []byte, userID string, in ExtractInput, prog func(int, string)) (card.Card, error) {
@@ -287,20 +303,28 @@ func persistCard(ctx context.Context, st *store.Store, c card.Card) error {
 	if len(bytes.TrimSpace(facts)) == 0 {
 		facts = json.RawMessage(`{}`)
 	}
-	_, err = st.DB().ExecContext(
+	tx, err := st.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(
 		ctx,
 		`INSERT INTO style_cards (id, project_id, name, kind, current_version, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		c.ID, c.ProjectID, c.Name, c.Kind, c.Version, now, now,
 	)
 	if err != nil {
 		return err
 	}
-	_, err = st.DB().ExecContext(
+	_, err = tx.ExecContext(
 		ctx,
 		`INSERT INTO style_card_versions (card_id, version, dimensions_json, prohibitions_json, facts_json, lineage_json, created_at)
-		 VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+			 VALUES (?, ?, ?, ?, ?, NULL, ?)`,
 		c.ID, c.Version, string(dims), string(prohibitions), string(facts), now,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }

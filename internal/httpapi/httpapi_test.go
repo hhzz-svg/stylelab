@@ -48,7 +48,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(30 * time.Millisecond):
-			return json.RawMessage(`{"ok":true}`), nil
+			return json.RawMessage(`{"card_id":"crd_0123456789abcdef"}`), nil
 		}
 	})
 	runner.Start(context.Background())
@@ -873,19 +873,39 @@ func TestExtractStartsJob(t *testing.T) {
 		t.Fatalf("job_id: %v", got["job_id"])
 	}
 
-	get, err := c.Get(srv.URL + "/api/jobs/" + jobID)
-	if err != nil {
-		t.Fatalf("GET job: %v", err)
-	}
-	jobBody := decodeJSON(t, get)
-	if get.StatusCode != http.StatusOK {
-		t.Fatalf("GET job status: %d body=%v", get.StatusCode, jobBody)
+	deadline := time.Now().Add(3 * time.Second)
+	var jobBody map[string]any
+	for {
+		get, err := c.Get(srv.URL + "/api/jobs/" + jobID)
+		if err != nil {
+			t.Fatalf("GET job: %v", err)
+		}
+		jobBody = decodeJSON(t, get)
+		if get.StatusCode != http.StatusOK {
+			t.Fatalf("GET job status: %d body=%v", get.StatusCode, jobBody)
+		}
+		status, _ := jobBody["status"].(string)
+		if status == "succeeded" {
+			break
+		}
+		if status == "failed" || status == "canceled" {
+			t.Fatalf("job ended %s: %v", status, jobBody)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job did not succeed: %v", jobBody)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if jobBody["kind"] != "extract" {
 		t.Fatalf("job kind: %v", jobBody["kind"])
 	}
 	if jobBody["project_id"] != projectID {
 		t.Fatalf("job project_id: %v", jobBody["project_id"])
+	}
+	result, _ := jobBody["result"].(map[string]any)
+	cardID, _ := result["card_id"].(string)
+	if !strings.HasPrefix(cardID, "crd_") {
+		t.Fatalf("result.card_id: %v", jobBody["result"])
 	}
 }
 

@@ -1,4 +1,16 @@
-import type { APIErrorBody, Asset, Job, LLMKey, Me, Project } from './types'
+import type {
+  APIErrorBody,
+  Asset,
+  AuditReport,
+  CardSummary,
+  Job,
+  LLMKey,
+  Me,
+  ParentRef,
+  Project,
+  SampleChapter,
+  StyleCard,
+} from './types'
 
 export class APIError extends Error {
   status: number
@@ -92,6 +104,66 @@ export const api = {
     }),
 
   getJob: (id: string) => request<Job>(`/api/jobs/${id}`),
+
+  listCards: (projectId: string) =>
+    request<{ cards: CardSummary[] }>(`/api/projects/${projectId}/cards`),
+
+  getCard: (id: string) => request<StyleCard>(`/api/cards/${id}`),
+
+  getCardVersion: (id: string, n: number) =>
+    request<StyleCard>(`/api/cards/${id}/versions/${n}`),
+
+  saveCardVersion: (
+    id: string,
+    body: {
+      name?: string
+      levels: Record<string, number>
+      rewrite_summaries: boolean
+      model: string
+    },
+  ) =>
+    request<StyleCard>(`/api/cards/${id}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  exportCard: async (id: string) => {
+    const res = await fetch(`/api/cards/${id}/export`, { credentials: 'include' })
+    if (!res.ok) {
+      throw await parseError(res)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'simulation_profile.json'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+
+  fuse: (projectId: string, name: string, parents: ParentRef[], model: string) =>
+    request<{ job_id: string }>(`/api/projects/${projectId}/fuse`, {
+      method: 'POST',
+      body: JSON.stringify({ name, parents, model }),
+    }),
+
+  auditCard: (id: string, model: string) =>
+    request<{ job_id: string }>(`/api/cards/${id}/audit`, {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
+
+  getAudit: (id: string) => request<AuditReport>(`/api/audits/${id}`),
+
+  sampleCard: (id: string, premise: string, targetRunes: number, model: string) =>
+    request<{ job_id: string }>(`/api/cards/${id}/sample`, {
+      method: 'POST',
+      body: JSON.stringify({ premise, target_runes: targetRunes, model }),
+    }),
+
+  getSample: (id: string) => request<SampleChapter>(`/api/samples/${id}`),
 
   listLLMKeys: () => request<{ keys: LLMKey[] }>('/api/me/llm-keys'),
 

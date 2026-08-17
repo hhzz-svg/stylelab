@@ -2,13 +2,14 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { APIError, api } from '../api'
 import JobProgress from '../components/JobProgress'
-import type { Asset, Project } from '../types'
+import type { Asset, CardSummary, Project } from '../types'
 
 export default function ProjectHome() {
   const { id } = useParams()
   const projectId = id ?? ''
   const [project, setProject] = useState<Project | null>(null)
   const [assets, setAssets] = useState<Asset[]>([])
+  const [cards, setCards] = useState<CardSummary[]>([])
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [file, setFile] = useState<File | null>(null)
   const [cardName, setCardName] = useState('风格卡片')
@@ -20,9 +21,14 @@ export default function ProjectHome() {
   async function load() {
     if (!projectId) return
     try {
-      const [p, a] = await Promise.all([api.getProject(projectId), api.listAssets(projectId)])
+      const [p, a, c] = await Promise.all([
+        api.getProject(projectId),
+        api.listAssets(projectId),
+        api.listCards(projectId),
+      ])
       setProject(p)
       setAssets(a.assets ?? [])
+      setCards(c.cards ?? [])
     } catch (err) {
       setError(err instanceof APIError ? err.message : '加载失败')
     }
@@ -132,6 +138,27 @@ export default function ProjectHome() {
         </div>
         {error ? <p className="error">{error}</p> : null}
         {jobId ? <JobProgress jobId={jobId} projectId={projectId} /> : null}
+      </div>
+
+      <div className="card">
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <h2 style={{ marginBottom: 0 }}>风格卡片</h2>
+          <Link to={`/p/${projectId}/fuse`}>风格融合</Link>
+        </div>
+        {cards.length === 0 ? (
+          <p className="muted">还没有卡片。抽离风格成功后会在这里列出。</p>
+        ) : (
+          <ul className="list">
+            {cards.map((card) => (
+              <li key={card.id}>
+                <Link to={`/p/${projectId}/lab/${card.id}`}>{card.name}</Link>
+                <span className="muted">
+                  {card.kind} · v{card.current_version}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   )

@@ -3,17 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { APIError, api } from '../api'
 import type { Job, JobResult } from '../types'
 
-function cardIdFromResult(result: Job['result']): string | undefined {
-  if (!result) return undefined
+function resultFromJob(result: Job['result']): JobResult {
+  if (!result) return {}
   if (typeof result === 'string') {
     try {
-      const parsed = JSON.parse(result) as JobResult
-      return parsed.card_id
+      return JSON.parse(result) as JobResult
     } catch {
-      return undefined
+      return {}
     }
   }
-  return result.card_id
+  return result
 }
 
 type Props = {
@@ -34,9 +33,18 @@ export default function JobProgress({ jobId, projectId }: Props) {
         if (stopped) return
         setJob(rec)
         if (rec.status === 'succeeded') {
-          const cardId = cardIdFromResult(rec.result)
-          if (cardId && projectId) {
-            navigate(`/p/${projectId}/lab/${cardId}`)
+          const result = resultFromJob(rec.result)
+          if (projectId && result.card_id) {
+            navigate(`/p/${projectId}/lab/${result.card_id}`)
+            return
+          }
+          if (projectId && result.audit_id) {
+            navigate(`/p/${projectId}/audit/${result.audit_id}`)
+            return
+          }
+          if (projectId && result.sample_id) {
+            navigate(`/p/${projectId}/sample/${result.sample_id}`)
+            return
           }
           return
         }

@@ -10,7 +10,8 @@ import (
 )
 
 type Store struct {
-	db *sql.DB
+	db      *sql.DB
+	dataDir string
 }
 
 func Open(dataDir string) (*Store, error) {
@@ -40,7 +41,7 @@ func Open(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, dataDir: dataDir}, nil
 }
 
 func (s *Store) Close() error {
@@ -52,4 +53,11 @@ func (s *Store) Close() error {
 
 func (s *Store) DB() *sql.DB {
 	return s.db
+}
+
+func (s *Store) DataDir() string {
+	if s == nil {
+		return ""
+	}
+	return s.dataDir
 }

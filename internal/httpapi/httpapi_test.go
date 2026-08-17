@@ -839,6 +839,85 @@ func TestJobsGetAndCancel(t *testing.T) {
 	}
 }
 
+func TestExtractStartsJob(t *testing.T) {
+	srv := newTestServer(t)
+	c := clientWithJar(t)
+	reg := postJSON(t, c, srv.URL+"/api/auth/register", `{"email":"extract@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", reg.StatusCode)
+	}
+
+	create := postJSON(t, c, srv.URL+"/api/projects", `{"name":"抽离"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", create.StatusCode, created)
+	}
+	projectID, _ := created["id"].(string)
+
+	content := "第一章\n春风过境。\n\n第二章\n夏雨初歇。"
+	upload := postMultipartFile(t, c, srv.URL+"/api/projects/"+projectID+"/assets", "file", "sample.txt", content)
+	asset := decodeJSON(t, upload)
+	if upload.StatusCode != http.StatusCreated {
+		t.Fatalf("upload: %d body=%v", upload.StatusCode, asset)
+	}
+	assetID, _ := asset["id"].(string)
+
+	resp := postJSON(t, c, srv.URL+"/api/projects/"+projectID+"/extract", `{"asset_ids":["`+assetID+`"],"name":"节奏样本","model":"gpt-4o-mini"}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("extract status: %d body=%v", resp.StatusCode, got)
+	}
+	jobID, _ := got["job_id"].(string)
+	if !strings.HasPrefix(jobID, "job_") {
+		t.Fatalf("job_id: %v", got["job_id"])
+	}
+
+	get, err := c.Get(srv.URL + "/api/jobs/" + jobID)
+	if err != nil {
+		t.Fatalf("GET job: %v", err)
+	}
+	jobBody := decodeJSON(t, get)
+	if get.StatusCode != http.StatusOK {
+		t.Fatalf("GET job status: %d body=%v", get.StatusCode, jobBody)
+	}
+	if jobBody["kind"] != "extract" {
+		t.Fatalf("job kind: %v", jobBody["kind"])
+	}
+	if jobBody["project_id"] != projectID {
+		t.Fatalf("job project_id: %v", jobBody["project_id"])
+	}
+}
+
+func TestExtractOtherUserProject404(t *testing.T) {
+	srv := newTestServer(t)
+	owner := clientWithJar(t)
+	other := clientWithJar(t)
+	reg := postJSON(t, owner, srv.URL+"/api/auth/register", `{"email":"ex-owner@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("owner register: %d", reg.StatusCode)
+	}
+	reg = postJSON(t, other, srv.URL+"/api/auth/register", `{"email":"ex-other@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("other register: %d", reg.StatusCode)
+	}
+	create := postJSON(t, owner, srv.URL+"/api/projects", `{"name":"owner"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", create.StatusCode, created)
+	}
+	id, _ := created["id"].(string)
+
+	resp := postJSON(t, other, srv.URL+"/api/projects/"+id+"/extract", `{"asset_ids":["ast_0123456789abcdef"],"name":"x"}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("other extract status: %d body=%v", resp.StatusCode, got)
+	}
+	assertAPIError(t, got, "not_found")
+}
+
 func TestHealthStillWorks(t *testing.T) {
 	srv := newTestServer(t)
 	resp, err := http.Get(srv.URL + "/api/health")

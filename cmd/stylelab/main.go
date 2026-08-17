@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"stylelab/internal/config"
+	"stylelab/internal/httpapi"
+	"stylelab/internal/store"
 )
 
 func main() {
@@ -20,12 +22,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	})
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer st.Close()
 
-	log.Fatal(http.ListenAndServe(cfg.Addr, mux))
+	handler := httpapi.New(st, cfg)
+	log.Fatal(http.ListenAndServe(cfg.Addr, handler))
 }

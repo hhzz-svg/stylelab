@@ -54,8 +54,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/cards/{id}", s.handleGetCard)
 	s.mux.HandleFunc("POST /api/cards/{id}/versions", s.handleCreateCardVersion)
 	s.mux.HandleFunc("GET /api/cards/{id}/versions/{n}", s.handleGetCardVersion)
-	s.mux.HandleFunc("GET /api/cards/{id}/export", s.handleExportCard)
-	s.mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
+		s.mux.HandleFunc("GET /api/cards/{id}/export", s.handleExportCard)
+		s.mux.HandleFunc("POST /api/cards/{id}/audit", s.handleAuditCard)
+		s.mux.HandleFunc("GET /api/audits/{id}", s.handleGetAudit)
+		s.mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
 	s.mux.HandleFunc("POST /api/jobs/{id}/cancel", s.handleCancelJob)
 	s.mux.HandleFunc("GET /api/jobs/{id}/events", s.handleJobEvents)
 }

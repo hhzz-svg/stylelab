@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"stylelab/internal/card"
 	"stylelab/internal/config"
 	"stylelab/internal/httpapi"
 	"stylelab/internal/job"
@@ -49,6 +50,15 @@ func newTestServer(t *testing.T) *httptest.Server {
 			return nil, ctx.Err()
 		case <-time.After(30 * time.Millisecond):
 			return json.RawMessage(`{"card_id":"crd_0123456789abcdef"}`), nil
+		}
+	})
+	runner.Register(job.KindFuse, func(ctx context.Context, rec job.Record, prog func(int, string)) (json.RawMessage, error) {
+		prog(50, "halfway")
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(30 * time.Millisecond):
+			return json.RawMessage(`{"card_id":"crd_fedcba9876543210","conflicts":["句式冲突"]}`), nil
 		}
 	})
 	runner.Start(context.Background())
@@ -907,6 +917,249 @@ func TestExtractStartsJob(t *testing.T) {
 	if !strings.HasPrefix(cardID, "crd_") {
 		t.Fatalf("result.card_id: %v", jobBody["result"])
 	}
+}
+
+func TestFuseStartsJob(t *testing.T) {
+	srv := newTestServer(t)
+	c := clientWithJar(t)
+	reg := postJSON(t, c, srv.URL+"/api/auth/register", `{"email":"fuse@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", reg.StatusCode)
+	}
+
+	create := postJSON(t, c, srv.URL+"/api/projects", `{"name":"融合"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", create.StatusCode, created)
+	}
+	projectID, _ := created["id"].(string)
+
+	resp := postJSON(t, c, srv.URL+"/api/projects/"+projectID+"/fuse", `{
+		"name":"融合样本",
+		"model":"gpt-4o-mini",
+		"parents":[
+			{"card_id":"crd_aaaaaaaaaaaaaaaa","version":1,"dims":["sentence_rhythm"],"weights":{"sentence_rhythm":60}},
+			{"card_id":"crd_bbbbbbbbbbbbbbbb","version":1,"dims":["sentence_rhythm"],"weights":{"sentence_rhythm":40}}
+		]
+	}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("fuse status: %d body=%v", resp.StatusCode, got)
+	}
+	jobID, _ := got["job_id"].(string)
+	if !strings.HasPrefix(jobID, "job_") {
+		t.Fatalf("job_id: %v", got["job_id"])
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var jobBody map[string]any
+	for {
+		get, err := c.Get(srv.URL + "/api/jobs/" + jobID)
+		if err != nil {
+			t.Fatalf("GET job: %v", err)
+		}
+		jobBody = decodeJSON(t, get)
+		if get.StatusCode != http.StatusOK {
+			t.Fatalf("GET job status: %d body=%v", get.StatusCode, jobBody)
+		}
+		status, _ := jobBody["status"].(string)
+		if status == "succeeded" {
+			break
+		}
+		if status == "failed" || status == "canceled" {
+			t.Fatalf("job ended %s: %v", status, jobBody)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job did not succeed: %v", jobBody)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if jobBody["kind"] != "fuse" {
+		t.Fatalf("job kind: %v", jobBody["kind"])
+	}
+	result, _ := jobBody["result"].(map[string]any)
+	cardID, _ := result["card_id"].(string)
+	if !strings.HasPrefix(cardID, "crd_") {
+		t.Fatalf("result.card_id: %v", jobBody["result"])
+	}
+}
+
+func TestFuseOtherUserProject404(t *testing.T) {
+	srv := newTestServer(t)
+	owner := clientWithJar(t)
+	other := clientWithJar(t)
+	reg := postJSON(t, owner, srv.URL+"/api/auth/register", `{"email":"fuse-owner@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("owner register: %d", reg.StatusCode)
+	}
+	reg = postJSON(t, other, srv.URL+"/api/auth/register", `{"email":"fuse-other@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("other register: %d", reg.StatusCode)
+	}
+	create := postJSON(t, owner, srv.URL+"/api/projects", `{"name":"owner"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", create.StatusCode, created)
+	}
+	id, _ := created["id"].(string)
+
+	resp := postJSON(t, other, srv.URL+"/api/projects/"+id+"/fuse", `{"name":"x","parents":[]}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("other fuse status: %d body=%v", resp.StatusCode, got)
+	}
+	assertAPIError(t, got, "not_found")
+}
+
+func TestCardsListGetAndVersion(t *testing.T) {
+	t.Setenv("STYLELAB_DEV_INSECURE_KEY", "1")
+	t.Setenv("STYLELAB_MASTER_KEY", "")
+	t.Setenv("STYLELAB_DATA_DIR", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.DataDir = t.TempDir()
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	runner := job.NewRunner(st, 1)
+	runner.Start(context.Background())
+	srv := httptest.NewServer(httpapi.New(st, cfg, runner))
+	t.Cleanup(srv.Close)
+
+	owner := clientWithJar(t)
+	other := clientWithJar(t)
+	reg := postJSON(t, owner, srv.URL+"/api/auth/register", `{"email":"cards-owner@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("owner register: %d", reg.StatusCode)
+	}
+	reg = postJSON(t, other, srv.URL+"/api/auth/register", `{"email":"cards-other@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("other register: %d", reg.StatusCode)
+	}
+
+	create := postJSON(t, owner, srv.URL+"/api/projects", `{"name":"卡片"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", create.StatusCode, created)
+	}
+	projectID, _ := created["id"].(string)
+
+	fix := card.ValidFixture("extracted")
+	fix.ID = "crd_0123456789abcdef"
+	fix.ProjectID = projectID
+	now := time.Now().UTC().Format(time.RFC3339)
+	dims, err := json.Marshal(fix.Dimensions)
+	if err != nil {
+		t.Fatalf("dims: %v", err)
+	}
+	prohibitions, err := json.Marshal(fix.Prohibitions)
+	if err != nil {
+		t.Fatalf("prohibitions: %v", err)
+	}
+	_, err = st.DB().Exec(
+		`INSERT INTO style_cards (id, project_id, name, kind, current_version, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 2, ?, ?)`,
+		fix.ID, projectID, fix.Name, fix.Kind, now, now,
+	)
+	if err != nil {
+		t.Fatalf("insert card: %v", err)
+	}
+	v1Dims := map[string]card.Dimension{}
+	for k, d := range fix.Dimensions {
+		if k == "sentence_rhythm" {
+			d.Level = 11
+			d.Summary = "第一版节奏"
+		}
+		v1Dims[k] = d
+	}
+	v1JSON, _ := json.Marshal(v1Dims)
+	_, err = st.DB().Exec(
+		`INSERT INTO style_card_versions (card_id, version, dimensions_json, prohibitions_json, facts_json, lineage_json, created_at)
+		 VALUES (?, 1, ?, ?, '{}', NULL, ?)`,
+		fix.ID, string(v1JSON), string(prohibitions), now,
+	)
+	if err != nil {
+		t.Fatalf("insert v1: %v", err)
+	}
+	_, err = st.DB().Exec(
+		`INSERT INTO style_card_versions (card_id, version, dimensions_json, prohibitions_json, facts_json, lineage_json, created_at)
+		 VALUES (?, 2, ?, ?, '{}', NULL, ?)`,
+		fix.ID, string(dims), string(prohibitions), now,
+	)
+	if err != nil {
+		t.Fatalf("insert v2: %v", err)
+	}
+
+	list, err := owner.Get(srv.URL + "/api/projects/" + projectID + "/cards")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	listed := decodeJSON(t, list)
+	if list.StatusCode != http.StatusOK {
+		t.Fatalf("list status: %d body=%v", list.StatusCode, listed)
+	}
+	cards, _ := listed["cards"].([]any)
+	if len(cards) != 1 {
+		t.Fatalf("cards: %v", listed)
+	}
+	row, _ := cards[0].(map[string]any)
+	if row["id"] != fix.ID || row["name"] != fix.Name || row["kind"] != "extracted" {
+		t.Fatalf("list row: %v", row)
+	}
+	if intFromJSON(row["current_version"]) != 2 {
+		t.Fatalf("current_version: %v", row["current_version"])
+	}
+	if row["updated_at"] == nil || row["updated_at"] == "" {
+		t.Fatalf("updated_at missing: %v", row)
+	}
+
+	get, err := owner.Get(srv.URL + "/api/cards/" + fix.ID)
+	if err != nil {
+		t.Fatalf("get card: %v", err)
+	}
+	current := decodeJSON(t, get)
+	if get.StatusCode != http.StatusOK {
+		t.Fatalf("get status: %d body=%v", get.StatusCode, current)
+	}
+	if current["id"] != fix.ID || intFromJSON(current["version"]) != 2 {
+		t.Fatalf("current card: %v", current)
+	}
+
+	v1, err := owner.Get(srv.URL + "/api/cards/" + fix.ID + "/versions/1")
+	if err != nil {
+		t.Fatalf("get v1: %v", err)
+	}
+	old := decodeJSON(t, v1)
+	if v1.StatusCode != http.StatusOK {
+		t.Fatalf("v1 status: %d body=%v", v1.StatusCode, old)
+	}
+	if intFromJSON(old["version"]) != 1 {
+		t.Fatalf("v1 version: %v", old["version"])
+	}
+	dimsMap, _ := old["dimensions"].(map[string]any)
+	sr, _ := dimsMap["sentence_rhythm"].(map[string]any)
+	if intFromJSON(sr["level"]) != 11 {
+		t.Fatalf("v1 level: %v", sr)
+	}
+
+	otherGet, err := other.Get(srv.URL + "/api/cards/" + fix.ID)
+	if err != nil {
+		t.Fatalf("other get: %v", err)
+	}
+	otherBody := decodeJSON(t, otherGet)
+	if otherGet.StatusCode != http.StatusNotFound {
+		t.Fatalf("other get status: %d body=%v", otherGet.StatusCode, otherBody)
+	}
+	assertAPIError(t, otherBody, "not_found")
 }
 
 func TestExtractOtherUserProject404(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 
 	"stylelab/internal/config"
 	"stylelab/internal/extract"
+	"stylelab/internal/fuse"
 	"stylelab/internal/httpapi"
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
@@ -36,6 +37,7 @@ func main() {
 	llmClient := &llm.Client{}
 	runner := job.NewRunner(st, cfg.WorkerConcurrency)
 	runner.Register(job.KindExtract, extract.JobHandler(st, llmClient, cfg.MasterKey))
+	runner.Register(job.KindFuse, fuse.JobHandler(st, llmClient, cfg.MasterKey))
 	if _, err := runner.RecoverInterrupted(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

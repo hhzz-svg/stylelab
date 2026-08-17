@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"stylelab/internal/config"
 	"stylelab/internal/httpapi"
+	"stylelab/internal/job"
 	"stylelab/internal/store"
 )
 
@@ -29,6 +31,15 @@ func main() {
 	}
 	defer st.Close()
 
-	handler := httpapi.New(st, cfg)
+	runner := job.NewRunner(st, cfg.WorkerConcurrency)
+	if _, err := runner.RecoverInterrupted(context.Background()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runner.Start(ctx)
+
+	handler := httpapi.New(st, cfg, runner)
 	log.Fatal(http.ListenAndServe(cfg.Addr, handler))
 }

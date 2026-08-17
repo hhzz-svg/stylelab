@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,10 +13,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"stylelab/internal/config"
 	"stylelab/internal/httpapi"
+	"stylelab/internal/job"
 	"stylelab/internal/store"
 )
 
@@ -38,9 +41,52 @@ func newTestServer(t *testing.T) *httptest.Server {
 			t.Errorf("Close: %v", err)
 		}
 	})
-	srv := httptest.NewServer(httpapi.New(st, cfg))
+	runner := job.NewRunner(st, 2)
+	runner.Register(job.KindExtract, func(ctx context.Context, rec job.Record, prog func(int, string)) (json.RawMessage, error) {
+		prog(50, "halfway")
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(30 * time.Millisecond):
+			return json.RawMessage(`{"ok":true}`), nil
+		}
+	})
+	runner.Start(context.Background())
+	srv := httptest.NewServer(httpapi.New(st, cfg, runner))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+func newJobTestEnv(t *testing.T) (*httptest.Server, *job.Runner) {
+	t.Helper()
+	t.Setenv("STYLELAB_DEV_INSECURE_KEY", "1")
+	t.Setenv("STYLELAB_MASTER_KEY", "")
+	t.Setenv("STYLELAB_DATA_DIR", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.DataDir = t.TempDir()
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	started := make(chan struct{})
+	runner := job.NewRunner(st, 1)
+	runner.Register(job.KindExtract, func(ctx context.Context, rec job.Record, prog func(int, string)) (json.RawMessage, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	runner.Start(context.Background())
+	srv := httptest.NewServer(httpapi.New(st, cfg, runner))
+	t.Cleanup(srv.Close)
+	return srv, runner
 }
 
 func clientWithJar(t *testing.T) *http.Client {
@@ -688,6 +734,109 @@ func TestProjectsRequireAuth(t *testing.T) {
 		t.Fatalf("GET list unauth status: %d body=%v", resp.StatusCode, got)
 	}
 	assertAPIError(t, got, "unauthorized")
+}
+
+func TestJobsGetAndCancel(t *testing.T) {
+	srv, runner := newJobTestEnv(t)
+	owner := clientWithJar(t)
+	other := clientWithJar(t)
+
+	reg := postJSON(t, owner, srv.URL+"/api/auth/register", `{"email":"job-owner@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("owner register: %d", reg.StatusCode)
+	}
+	reg = postJSON(t, other, srv.URL+"/api/auth/register", `{"email":"job-other@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("other register: %d", reg.StatusCode)
+	}
+
+	create := postJSON(t, owner, srv.URL+"/api/projects", `{"name":"jobs"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create project: %d body=%v", create.StatusCode, created)
+	}
+	projectID, _ := created["id"].(string)
+
+	me, err := owner.Get(srv.URL + "/api/me")
+	if err != nil {
+		t.Fatalf("me: %v", err)
+	}
+	meBody := decodeJSON(t, me)
+	userID, _ := meBody["user_id"].(string)
+
+	jobID, err := runner.Enqueue(context.Background(), job.Record{
+		UserID:    userID,
+		ProjectID: projectID,
+		Kind:      job.KindExtract,
+		Payload:   json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var got map[string]any
+	for {
+		get, err := owner.Get(srv.URL + "/api/jobs/" + jobID)
+		if err != nil {
+			t.Fatalf("GET job: %v", err)
+		}
+		got = decodeJSON(t, get)
+		if get.StatusCode != http.StatusOK {
+			t.Fatalf("GET job status: %d body=%v", get.StatusCode, got)
+		}
+		if got["status"] == "running" || got["status"] == "queued" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job never visible as queued/running: %v", got)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	otherGet, err := other.Get(srv.URL + "/api/jobs/" + jobID)
+	if err != nil {
+		t.Fatalf("other GET: %v", err)
+	}
+	otherBody := decodeJSON(t, otherGet)
+	if otherGet.StatusCode != http.StatusNotFound {
+		t.Fatalf("other GET status: %d body=%v", otherGet.StatusCode, otherBody)
+	}
+	assertAPIError(t, otherBody, "not_found")
+
+	cancel, err := owner.Post(srv.URL+"/api/jobs/"+jobID+"/cancel", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	cancel.Body.Close()
+	if cancel.StatusCode != http.StatusNoContent {
+		t.Fatalf("cancel status: %d", cancel.StatusCode)
+	}
+
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		get, err := owner.Get(srv.URL + "/api/jobs/" + jobID)
+		if err != nil {
+			t.Fatalf("GET after cancel: %v", err)
+		}
+		got = decodeJSON(t, get)
+		if get.StatusCode != http.StatusOK {
+			t.Fatalf("GET after cancel status: %d body=%v", get.StatusCode, got)
+		}
+		status, _ := got["status"].(string)
+		if status == "canceled" || status == "failed" {
+			if status == "running" {
+				t.Fatalf("left running: %v", got)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job not canceled: %v", got)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestHealthStillWorks(t *testing.T) {

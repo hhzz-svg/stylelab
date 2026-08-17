@@ -40,6 +40,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/projects", s.handleListProjects)
 	s.mux.HandleFunc("GET /api/projects/{id}", s.handleGetProject)
 	s.mux.HandleFunc("DELETE /api/projects/{id}", s.handleDeleteProject)
+	s.mux.HandleFunc("POST /api/projects/{id}/assets", s.handleUploadAsset)
+	s.mux.HandleFunc("GET /api/projects/{id}/assets", s.handleListAssets)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

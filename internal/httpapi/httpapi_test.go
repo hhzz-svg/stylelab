@@ -2,8 +2,11 @@ package httpapi_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -527,6 +530,146 @@ func TestProjectsNameValidation(t *testing.T) {
 	}
 }
 
+func TestAssetUploadAndList(t *testing.T) {
+	srv := newTestServer(t)
+	c := clientWithJar(t)
+	reg := postJSON(t, c, srv.URL+"/api/auth/register", `{"email":"assets@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", reg.StatusCode)
+	}
+
+	create := postJSON(t, c, srv.URL+"/api/projects", `{"name":"素材库"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create project: %d body=%v", create.StatusCode, created)
+	}
+	projectID, _ := created["id"].(string)
+	if projectID == "" {
+		t.Fatalf("missing project id: %v", created)
+	}
+
+	content := "第一章\n春风过境。\n\n第二章\n夏雨初歇。"
+	upload := postMultipartFile(t, c, srv.URL+"/api/projects/"+projectID+"/assets", "file", "sample.txt", content)
+	got := decodeJSON(t, upload)
+	if upload.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status: %d body=%v", upload.StatusCode, got)
+	}
+	id, _ := got["id"].(string)
+	if !strings.HasPrefix(id, "ast_") {
+		t.Fatalf("id prefix: %v", got["id"])
+	}
+	if got["filename"] != "sample.txt" {
+		t.Fatalf("filename: %v", got["filename"])
+	}
+	sum := sha256.Sum256([]byte(content))
+	wantSHA := hex.EncodeToString(sum[:])
+	if got["sha256"] != wantSHA {
+		t.Fatalf("sha256: got %v want %s", got["sha256"], wantSHA)
+	}
+	if intFromJSON(got["rune_count"]) != utf8.RuneCountInString(content) {
+		t.Fatalf("rune_count: %v", got["rune_count"])
+	}
+	if intFromJSON(got["chapter_count"]) != 2 {
+		t.Fatalf("chapter_count: %v", got["chapter_count"])
+	}
+
+	list, err := c.Get(srv.URL + "/api/projects/" + projectID + "/assets")
+	if err != nil {
+		t.Fatalf("GET assets: %v", err)
+	}
+	listed := decodeJSON(t, list)
+	if list.StatusCode != http.StatusOK {
+		t.Fatalf("list status: %d body=%v", list.StatusCode, listed)
+	}
+	raw, _ := json.Marshal(listed)
+	if strings.Contains(string(raw), content) || strings.Contains(string(raw), "春风过境") {
+		t.Fatalf("list leaked file body: %s", raw)
+	}
+	assets, ok := listed["assets"].([]any)
+	if !ok || len(assets) != 1 {
+		t.Fatalf("assets: %v", listed["assets"])
+	}
+	row, _ := assets[0].(map[string]any)
+	if row["id"] != id || row["filename"] != "sample.txt" || row["sha256"] != wantSHA {
+		t.Fatalf("list row: %v", row)
+	}
+	if intFromJSON(row["chapter_count"]) != 2 {
+		t.Fatalf("list chapter_count: %v", row["chapter_count"])
+	}
+}
+
+func TestAssetUploadOtherUserProject404(t *testing.T) {
+	srv := newTestServer(t)
+	owner := clientWithJar(t)
+	other := clientWithJar(t)
+
+	reg := postJSON(t, owner, srv.URL+"/api/auth/register", `{"email":"owner-ast@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("owner register: %d", reg.StatusCode)
+	}
+	reg = postJSON(t, other, srv.URL+"/api/auth/register", `{"email":"other-ast@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("other register: %d", reg.StatusCode)
+	}
+
+	create := postJSON(t, owner, srv.URL+"/api/projects", `{"name":"owner only"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", create.StatusCode, created)
+	}
+	id, _ := created["id"].(string)
+
+	upload := postMultipartFile(t, other, srv.URL+"/api/projects/"+id+"/assets", "file", "x.txt", "第一章\n甲\n\n第二章\n乙")
+	got := decodeJSON(t, upload)
+	if upload.StatusCode != http.StatusNotFound {
+		t.Fatalf("other upload status: %d body=%v", upload.StatusCode, got)
+	}
+	assertAPIError(t, got, "not_found")
+
+	list, err := other.Get(srv.URL + "/api/projects/" + id + "/assets")
+	if err != nil {
+		t.Fatalf("other list: %v", err)
+	}
+	got = decodeJSON(t, list)
+	if list.StatusCode != http.StatusNotFound {
+		t.Fatalf("other list status: %d body=%v", list.StatusCode, got)
+	}
+	assertAPIError(t, got, "not_found")
+}
+
+func TestAssetUploadRejectsBadFile(t *testing.T) {
+	srv := newTestServer(t)
+	c := clientWithJar(t)
+	reg := postJSON(t, c, srv.URL+"/api/auth/register", `{"email":"badfile@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", reg.StatusCode)
+	}
+	create := postJSON(t, c, srv.URL+"/api/projects", `{"name":"p"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", create.StatusCode, created)
+	}
+	id, _ := created["id"].(string)
+
+	resp := postMultipartFile(t, c, srv.URL+"/api/projects/"+id+"/assets", "file", "note.pdf", "not allowed")
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("pdf status: %d body=%v", resp.StatusCode, got)
+	}
+	assertAPIError(t, got, "invalid")
+
+	resp = postMultipartFile(t, c, srv.URL+"/api/projects/"+id+"/assets", "file", "empty.txt", "")
+	got = decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty status: %d body=%v", resp.StatusCode, got)
+	}
+	assertAPIError(t, got, "invalid")
+}
+
 func TestProjectsRequireAuth(t *testing.T) {
 	srv := newTestServer(t)
 	resp := postJSON(t, http.DefaultClient, srv.URL+"/api/projects", `{"name":"x"}`)
@@ -606,6 +749,41 @@ func hasSessionCookie(resp *http.Response) bool {
 		}
 	}
 	return false
+}
+
+func postMultipartFile(t *testing.T, c *http.Client, rawURL, field, filename, content string) *http.Response {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	part, err := w.CreateFormFile(field, filename)
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := io.WriteString(part, content); err != nil {
+		t.Fatalf("write part: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+	resp, err := c.Post(rawURL, w.FormDataContentType(), &buf)
+	if err != nil {
+		t.Fatalf("POST %s: %v", rawURL, err)
+	}
+	return resp
+}
+
+func intFromJSON(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	default:
+		return -1
+	}
 }
 
 func assertAPIError(t *testing.T, body map[string]any, code string) {

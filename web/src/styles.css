@@ -1,0 +1,170 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #1b1b1b;
+  background: #f6f4ef;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: #2a4b7c;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.4rem;
+  background: #1f2a24;
+  color: #f6f4ef;
+}
+
+.topbar a {
+  color: #f6f4ef;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.nav-links,
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 1.5rem 1.2rem 3rem;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #ddd6c8;
+  border-radius: 10px;
+  padding: 1.1rem 1.2rem;
+  margin-bottom: 1rem;
+}
+
+h1,
+h2,
+h3 {
+  margin-top: 0;
+}
+
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.95rem;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='password'],
+select {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #c9c1b2;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.btn {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.45rem 0.85rem;
+  background: #2f5d4a;
+  color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn.secondary {
+  background: #5b5b5b;
+}
+
+.btn.danger {
+  background: #8b3a32;
+}
+
+.error {
+  color: #8b3a32;
+  margin: 0;
+}
+
+.muted {
+  color: #5d584f;
+  font-size: 0.92rem;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid #eee6d8;
+}
+
+.helper {
+  background: #eef4ea;
+  border: 1px solid #c9d8c3;
+  border-radius: 8px;
+  padding: 0.8rem 0.95rem;
+}
+
+.placeholder {
+  color: #5d584f;
+}

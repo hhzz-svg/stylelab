@@ -1,7 +1,8 @@
-import { DIMENSION_KEYS, DIMENSION_LABELS, type DimensionKey } from '../types'
+import { DIMENSION_KEYS, DIMENSION_LABELS, type Dimension, type DimensionKey } from '../types'
 
 type Props = {
   levels: Record<string, number>
+  dimensions?: Record<string, Dimension>
   onChange?: (key: DimensionKey, value: number) => void
   disabled?: boolean
 }
@@ -56,29 +57,41 @@ function Radar({ levels }: { levels: Record<string, number> }) {
   )
 }
 
-export default function DimensionSliders({ levels, onChange, disabled }: Props) {
+export default function DimensionSliders({ levels, dimensions, onChange, disabled }: Props) {
   return (
     <div className="dim-sliders">
       <Radar levels={levels} />
       <div className="stack">
         {DIMENSION_KEYS.map((key) => {
           const value = levels[key] ?? 0
+          const dim = dimensions?.[key]
+          const techniques = dim?.techniques ?? []
           return (
-            <label key={key} className="dim-row">
-              <span>
-                {DIMENSION_LABELS[key]}
-                <span className="muted"> {value}</span>
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={value}
-                disabled={disabled || !onChange}
-                onChange={(e) => onChange?.(key, Number(e.target.value))}
-              />
-            </label>
+            <div key={key} className="dim-row">
+              <label>
+                <span>
+                  {DIMENSION_LABELS[key]}
+                  <span className="muted"> {value}</span>
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={value}
+                  disabled={disabled || !onChange}
+                  onChange={(e) => onChange?.(key, Number(e.target.value))}
+                />
+              </label>
+              <p className="dim-summary muted">{dim?.summary ?? ''}</p>
+              {techniques.length > 0 ? (
+                <ul className="dim-techniques">
+                  {techniques.map((tech) => (
+                    <li key={tech}>{tech}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           )
         })}
       </div>

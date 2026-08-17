@@ -207,6 +207,17 @@ input[type='number'] {
   gap: 0.2rem;
 }
 
+.dim-summary {
+  margin: 0.15rem 0 0;
+}
+
+.dim-techniques {
+  margin: 0.2rem 0 0.35rem;
+  padding-left: 1.15rem;
+  color: #5d584f;
+  font-size: 0.88rem;
+}
+
 .radar {
   width: 100%;
   max-width: 280px;

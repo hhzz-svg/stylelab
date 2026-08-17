@@ -182,7 +182,12 @@ export default function Lab() {
                 <input type="text" value={model} onChange={(e) => setModel(e.target.value)} />
               </label>
             </div>
-            <DimensionSliders levels={levels} onChange={setLevel} disabled={busy} />
+            <DimensionSliders
+              levels={levels}
+              dimensions={card.dimensions}
+              onChange={setLevel}
+              disabled={busy}
+            />
             {card.prohibitions?.length ? (
               <div>
                 <h3>约束</h3>

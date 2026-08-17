@@ -120,7 +120,7 @@ func buildOpenAIRequest(ctx context.Context, req Request) (*http.Request, error)
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, openAIURL(req.BaseURL), bytes.NewReader(payload))
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, OpenAIURL(req.BaseURL), bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -200,11 +200,19 @@ func parseResponse(provider string, body []byte) (string, error) {
 	}
 }
 
-func openAIURL(base string) string {
-	if strings.TrimSpace(base) == "" {
-		base = defaultOpenAIBase
+func OpenAIURL(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return defaultOpenAIBase + "/v1/chat/completions"
 	}
-	return strings.TrimRight(base, "/") + "/v1/chat/completions"
+	base = strings.TrimRight(base, "/")
+	if strings.HasSuffix(base, "/v1/chat/completions") {
+		return base
+	}
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/chat/completions"
+	}
+	return base + "/v1/chat/completions"
 }
 
 func (c *Client) httpClient() *http.Client {

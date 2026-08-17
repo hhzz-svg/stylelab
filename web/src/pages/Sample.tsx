@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { APIError, api } from '../api'
 import JobProgress from '../components/JobProgress'
-import type { SampleChapter } from '../types'
+import type { JobStatus, SampleChapter } from '../types'
 
 export default function Sample() {
   const { id, sampleId } = useParams()
@@ -14,6 +14,11 @@ export default function Sample() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [jobId, setJobId] = useState('')
+  const [jobActive, setJobActive] = useState(false)
+
+  function onJobStatus(status: JobStatus) {
+    setJobActive(status === 'queued' || status === 'running')
+  }
 
   useEffect(() => {
     if (!sampleId) return
@@ -41,6 +46,7 @@ export default function Sample() {
     try {
       const res = await api.sampleCard(sample.card_id, text, target, model.trim())
       setJobId(res.job_id)
+      setJobActive(true)
     } catch (err) {
       setError(err instanceof APIError ? err.message : '试写提交失败')
     } finally {
@@ -96,11 +102,11 @@ export default function Sample() {
                 模型（可选）
                 <input type="text" value={model} onChange={(e) => setModel(e.target.value)} />
               </label>
-              <button className="btn" type="submit" disabled={busy || !!jobId}>
+              <button className="btn" type="submit" disabled={busy || jobActive}>
                 {busy ? '提交中…' : '再写一篇'}
               </button>
             </form>
-            {jobId ? <JobProgress jobId={jobId} projectId={projectId} /> : null}
+            {jobId ? <JobProgress jobId={jobId} projectId={projectId} onStatus={onJobStatus} /> : null}
             <h2>正文</h2>
             <pre className="sample-body">{sample.body}</pre>
             <h2>事实 JSON</h2>

@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { APIError, api } from '../api'
 import JobProgress from '../components/JobProgress'
-import type { Asset, CardSummary, Project } from '../types'
+import type { Asset, CardSummary, JobStatus, Project } from '../types'
 
 export default function ProjectHome() {
   const { id } = useParams()
@@ -15,8 +15,13 @@ export default function ProjectHome() {
   const [cardName, setCardName] = useState('风格卡片')
   const [model, setModel] = useState('')
   const [jobId, setJobId] = useState('')
+  const [jobActive, setJobActive] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  function onJobStatus(status: JobStatus) {
+    setJobActive(status === 'queued' || status === 'running')
+  }
 
   async function load() {
     if (!projectId) return
@@ -66,6 +71,7 @@ export default function ProjectHome() {
     try {
       const res = await api.extract(projectId, assetIds, cardName.trim() || '风格卡片', model.trim())
       setJobId(res.job_id)
+      setJobActive(true)
     } catch (err) {
       setError(err instanceof APIError ? err.message : '抽离失败')
     } finally {
@@ -132,12 +138,12 @@ export default function ProjectHome() {
             模型（可选）
             <input type="text" value={model} onChange={(e) => setModel(e.target.value)} />
           </label>
-          <button className="btn" type="button" onClick={startExtract} disabled={busy || !!jobId}>
+          <button className="btn" type="button" onClick={startExtract} disabled={busy || jobActive}>
             抽离风格
           </button>
         </div>
         {error ? <p className="error">{error}</p> : null}
-        {jobId ? <JobProgress jobId={jobId} projectId={projectId} /> : null}
+        {jobId ? <JobProgress jobId={jobId} projectId={projectId} onStatus={onJobStatus} /> : null}
       </div>
 
       <div className="card">

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { APIError, api } from '../api'
-import type { Job, JobResult } from '../types'
+import type { Job, JobResult, JobStatus } from '../types'
 
 function resultFromJob(result: Job['result']): JobResult {
   if (!result) return {}
@@ -18,20 +18,32 @@ function resultFromJob(result: Job['result']): JobResult {
 type Props = {
   jobId: string
   projectId?: string
+  onStatus?: (status: JobStatus) => void
 }
 
-export default function JobProgress({ jobId, projectId }: Props) {
+const POLL_MS = 1000
+const MAX_GET_FAILURES = 3
+
+export default function JobProgress({ jobId, projectId, onStatus }: Props) {
   const navigate = useNavigate()
   const [job, setJob] = useState<Job | null>(null)
   const [error, setError] = useState('')
+  const onStatusRef = useRef(onStatus)
+  onStatusRef.current = onStatus
 
   useEffect(() => {
     let stopped = false
+    let timer: number | undefined
+    let failures = 0
+
     async function tick() {
       try {
         const rec = await api.getJob(jobId)
         if (stopped) return
+        failures = 0
+        setError('')
         setJob(rec)
+        onStatusRef.current?.(rec.status)
         if (rec.status === 'succeeded') {
           const result = resultFromJob(rec.result)
           if (projectId && result.card_id) {
@@ -51,17 +63,26 @@ export default function JobProgress({ jobId, projectId }: Props) {
         if (rec.status === 'failed' || rec.status === 'canceled') {
           return
         }
-        window.setTimeout(() => {
+        timer = window.setTimeout(() => {
           void tick()
-        }, 1000)
+        }, POLL_MS)
       } catch (err) {
         if (stopped) return
+        failures += 1
+        if (failures < MAX_GET_FAILURES) {
+          timer = window.setTimeout(() => {
+            void tick()
+          }, POLL_MS)
+          return
+        }
         setError(err instanceof APIError ? err.message : '无法读取任务进度')
+        onStatusRef.current?.('failed')
       }
     }
     void tick()
     return () => {
       stopped = true
+      if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [jobId, navigate, projectId])
 

@@ -7,6 +7,7 @@ import {
   DIMENSION_LABELS,
   type CardSummary,
   type DimensionKey,
+  type JobStatus,
   type ParentRef,
 } from '../types'
 
@@ -52,6 +53,11 @@ export default function Fuse() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [jobId, setJobId] = useState('')
+  const [jobActive, setJobActive] = useState(false)
+
+  function onJobStatus(status: JobStatus) {
+    setJobActive(status === 'queued' || status === 'running')
+  }
 
   useEffect(() => {
     if (!projectId) return
@@ -116,6 +122,7 @@ export default function Fuse() {
     try {
       const res = await api.fuse(projectId, name.trim() || '融合风格', parents, model.trim())
       setJobId(res.job_id)
+      setJobActive(true)
     } catch (err) {
       setError(err instanceof APIError ? err.message : '融合提交失败')
     } finally {
@@ -228,12 +235,12 @@ export default function Fuse() {
           <button
             className="btn"
             type="submit"
-            disabled={busy || !!jobId || selectedIds.length < 2 || !weightsOk}
+            disabled={busy || jobActive || selectedIds.length < 2 || !weightsOk}
           >
             {busy ? '提交中…' : '开始融合'}
           </button>
         </form>
-        {jobId ? <JobProgress jobId={jobId} projectId={projectId} /> : null}
+        {jobId ? <JobProgress jobId={jobId} projectId={projectId} onStatus={onJobStatus} /> : null}
       </div>
     </div>
   )

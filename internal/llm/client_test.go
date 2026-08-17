@@ -14,6 +14,28 @@ import (
 	"stylelab/internal/llm"
 )
 
+func TestOpenAIURL(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", "https://api.openai.com/v1/chat/completions"},
+		{"   ", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.openai.com/v1", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.openai.com/v1/", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.openai.com/v1/chat/completions", "https://api.openai.com/v1/chat/completions"},
+		{"https://api.openai.com/v1/chat/completions/", "https://api.openai.com/v1/chat/completions"},
+		{"https://example.com", "https://example.com/v1/chat/completions"},
+		{"https://example.com/", "https://example.com/v1/chat/completions"},
+		{"https://proxy.example/openai", "https://proxy.example/openai/v1/chat/completions"},
+	}
+	for _, tc := range cases {
+		got := llm.OpenAIURL(tc.in)
+		if got != tc.want {
+			t.Errorf("OpenAIURL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestChatOpenAISuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

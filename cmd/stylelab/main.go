@@ -16,6 +16,7 @@ import (
 	"stylelab/internal/llm"
 	"stylelab/internal/sample"
 	"stylelab/internal/store"
+	"stylelab/web"
 )
 
 func main() {
@@ -50,6 +51,6 @@ func main() {
 	defer cancel()
 	runner.Start(ctx)
 
-	handler := httpapi.New(st, cfg, runner)
+	handler := web.Handler(httpapi.New(st, cfg, runner))
 	log.Fatal(http.ListenAndServe(cfg.Addr, handler))
 }

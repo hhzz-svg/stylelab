@@ -1,24 +1,116 @@
 # Style Lab
 
-Single-binary web app for extracting, fusing, and editing novel style cards.
+Single-binary Go + React app for extracting, fusing, auditing, and sampling **abstract novel style cards**.
 
-## Run
+Style Lab describes techniques (rhythm, perspective, dialogue density, sensory language, pacing, emotion, rhetoric, lexical texture, tension). It does **not** imitate, recreate, or restore a named author. Upload only text you have the right to use. Source excerpts are not stored on the card — only counts, short technique notes, and prohibitions.
+
+## Product boundary
+
+- Cards capture nine technique dimensions. They are not author profiles.
+- Prompts and UI talk about methods, not “write like person X”.
+- BYOK: your LLM API key is encrypted at rest with `STYLELAB_MASTER_KEY`. The API never returns the plaintext key — only `provider` and last 4 characters.
+- v1 is a standalone service (SQLite, in-process jobs). It does not call ainovel-cli as a subprocess.
+
+## Prerequisites
+
+- Go 1.22+
+- Node 20+ (frontend build)
+- Docker (optional)
+
+## Master key
+
+Production and Docker **must** set a 32-byte key as 64 hex characters:
 
 ```bash
-STYLELAB_DEV_INSECURE_KEY=1 go run ./cmd/stylelab
+export STYLELAB_MASTER_KEY="$(openssl rand -hex 32)"
 ```
 
-Then open `http://localhost:8080/api/health`.
+Local/test only: `STYLELAB_DEV_INSECURE_KEY=1` uses 32 zero bytes. Do not use that in production.
 
-`STYLELAB_DEV_INSECURE_KEY=1` uses a 32-byte zero master key and is for local/test only. Production must set `STYLELAB_MASTER_KEY` to 64 hex characters.
+## Run locally
+
+Build the SPA, then start the binary (it embeds `web/dist` and serves the UI plus `/api`):
+
+```bash
+cd web && npm install && npm run build && cd ..
+export STYLELAB_MASTER_KEY="$(openssl rand -hex 32)"
+go run ./cmd/stylelab
+```
+
+Open `http://localhost:8080`. Health check: `GET /api/health` → `{"ok":true}`.
+
+Frontend-only iteration:
+
+```bash
+# terminal 1
+STYLELAB_DEV_INSECURE_KEY=1 go run ./cmd/stylelab
+
+# terminal 2
+cd web && npm run dev
+```
+
+Vite proxies `/api` to `http://127.0.0.1:8080`. After UI changes that you want inside the Go binary, run `cd web && npm run build` again.
+
+If `web/dist` is missing, `go test` / `go run` will fail to compile the embed. Rebuild the SPA, or keep the committed `web/dist` tree.
+
+## Docker
+
+```bash
+export STYLELAB_MASTER_KEY="$(openssl rand -hex 32)"
+docker compose up --build
+```
+
+The image builds the SPA, then a static Go binary (`CGO_ENABLED=0`), listens on `8080`, and stores SQLite + blobs in the `/data` volume.
+
+```yaml
+# docker-compose.yml (excerpt)
+services:
+  stylelab:
+    environment:
+      STYLELAB_DATA_DIR: /data
+      STYLELAB_MASTER_KEY: ${STYLELAB_MASTER_KEY}
+    ports:
+      - "8080:8080"
+```
 
 ## Config
 
 | Env | Default | Notes |
 |---|---|---|
 | `STYLELAB_ADDR` | `:8080` | Listen address |
-| `STYLELAB_DATA_DIR` | `./data` | SQLite and blobs |
+| `STYLELAB_DATA_DIR` | `./data` | SQLite (`stylelab.db`) and blobs |
 | `STYLELAB_MASTER_KEY` | required | 64 hex chars (32 bytes) |
 | `STYLELAB_DEV_INSECURE_KEY` | off | `1` uses 32 zero bytes (test-only) |
 | `STYLELAB_DEV_AUTO_LOGIN` | off | `1` enables auto-login |
 | `STYLELAB_WORKERS` | `2` | In-process job concurrency |
+
+## Workflow
+
+1. **Account** — register / login. Session cookie: `stylelab_session` (httpOnly, 14 days).
+2. **Settings → BYOK** — save an OpenAI, Anthropic, or OpenAI-compatible key. Only last 4 chars are shown later.
+3. **Project** — create a project, upload `.txt` / `.md` samples (max 2 MiB each).
+4. **Extract (抽离风格)** — job kind `extract`. Deterministic metrics plus an LLM pass produce a 9-dimension card (`kind=extracted`). Total sample runes must be ≤ 100_000.
+5. **Lab** — edit levels, save a new card version, export JSON.
+6. **Fuse** — pick 2–4 cards, assign per-dimension weights that sum to 100, job kind `fuse` (`kind=fused`, lineage `fuse-v1`).
+7. **Audit** — dual personas `commercial_web` and `literary_texture`. Job kind `audit`. Review strengths, risks, conflicts, recommended edits.
+8. **Sample (试写)** — short chapter from a premise (≤ 80 runes), target 800–2000 runes. Job kind `sample`.
+
+Jobs are in-process (`queued` → `running` → `succeeded` / `failed` / `canceled`). Default concurrency is 2. A process restart marks leftover `running` rows `failed` with `interrupted`.
+
+## Export to ainovel-cli
+
+In Lab, **Export** downloads `simulation_profile.json` (`version: simulation_profile.v1`).
+
+That file is a technique profile for ainovel-cli (or any consumer of the same schema). It maps the nine dimensions into `synthesis.style` / `pacing_density` / `hook_design`, copies prohibitions to `do_not_copy`, and leaves `corpus.sources` empty. It does not include author names or long source excerpts.
+
+Use the downloaded JSON as a simulation profile input in ainovel-cli. Style Lab never shells out to ainovel-cli.
+
+## Layout
+
+```
+cmd/stylelab     HTTP binary (embeds web/dist)
+internal/        API, jobs, cards, BYOK, LLM
+web/             Vite + React SPA
+Dockerfile       multi-stage: node → go → alpine
+docker-compose.yml
+```

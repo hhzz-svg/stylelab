@@ -1,0 +1,13 @@
+services:
+  stylelab:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      STYLELAB_DATA_DIR: /data
+      STYLELAB_MASTER_KEY: ${STYLELAB_MASTER_KEY}
+    volumes:
+      - stylelab-data:/data
+
+volumes:
+  stylelab-data:

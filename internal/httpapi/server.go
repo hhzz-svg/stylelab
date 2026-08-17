@@ -7,6 +7,7 @@ import (
 	"stylelab/internal/auth"
 	"stylelab/internal/config"
 	"stylelab/internal/job"
+	"stylelab/internal/llm"
 	"stylelab/internal/store"
 )
 
@@ -15,6 +16,7 @@ type Server struct {
 	cfg  config.Config
 	auth *auth.Service
 	jobs *job.Runner
+	llm  *llm.Client
 	mux  *http.ServeMux
 }
 
@@ -24,6 +26,7 @@ func New(st *store.Store, cfg config.Config, runner *job.Runner) http.Handler {
 		cfg:  cfg,
 		auth: auth.NewService(st),
 		jobs: runner,
+		llm:  &llm.Client{},
 		mux:  http.NewServeMux(),
 	}
 	s.routes()
@@ -49,7 +52,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/projects/{id}/fuse", s.handleFuse)
 	s.mux.HandleFunc("GET /api/projects/{id}/cards", s.handleListCards)
 	s.mux.HandleFunc("GET /api/cards/{id}", s.handleGetCard)
+	s.mux.HandleFunc("POST /api/cards/{id}/versions", s.handleCreateCardVersion)
 	s.mux.HandleFunc("GET /api/cards/{id}/versions/{n}", s.handleGetCardVersion)
+	s.mux.HandleFunc("GET /api/cards/{id}/export", s.handleExportCard)
 	s.mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
 	s.mux.HandleFunc("POST /api/jobs/{id}/cancel", s.handleCancelJob)
 	s.mux.HandleFunc("GET /api/jobs/{id}/events", s.handleJobEvents)

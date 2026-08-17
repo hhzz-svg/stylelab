@@ -1162,6 +1162,133 @@ func TestCardsListGetAndVersion(t *testing.T) {
 	assertAPIError(t, otherBody, "not_found")
 }
 
+func TestCardVersionPostKeepsPreviousVersion(t *testing.T) {
+	t.Setenv("STYLELAB_DEV_INSECURE_KEY", "1")
+	t.Setenv("STYLELAB_MASTER_KEY", "")
+	t.Setenv("STYLELAB_DATA_DIR", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.DataDir = t.TempDir()
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	runner := job.NewRunner(st, 1)
+	runner.Start(context.Background())
+	srv := httptest.NewServer(httpapi.New(st, cfg, runner))
+	t.Cleanup(srv.Close)
+
+	owner := clientWithJar(t)
+	reg := postJSON(t, owner, srv.URL+"/api/auth/register", `{"email":"ver@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", reg.StatusCode)
+	}
+	create := postJSON(t, owner, srv.URL+"/api/projects", `{"name":"版本"}`)
+	created := decodeJSON(t, create)
+	if create.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", create.StatusCode, created)
+	}
+	projectID, _ := created["id"].(string)
+
+	fix := card.ValidFixture("extracted")
+	fix.ID = "crd_1111111111111111"
+	fix.ProjectID = projectID
+	now := time.Now().UTC().Format(time.RFC3339)
+	dims, err := json.Marshal(fix.Dimensions)
+	if err != nil {
+		t.Fatalf("dims: %v", err)
+	}
+	prohibitions, err := json.Marshal(fix.Prohibitions)
+	if err != nil {
+		t.Fatalf("prohibitions: %v", err)
+	}
+	_, err = st.DB().Exec(
+		`INSERT INTO style_cards (id, project_id, name, kind, current_version, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, 1, ?, ?)`,
+		fix.ID, projectID, fix.Name, fix.Kind, now, now,
+	)
+	if err != nil {
+		t.Fatalf("insert card: %v", err)
+	}
+	_, err = st.DB().Exec(
+		`INSERT INTO style_card_versions (card_id, version, dimensions_json, prohibitions_json, facts_json, lineage_json, created_at)
+			 VALUES (?, 1, ?, ?, '{}', NULL, ?)`,
+		fix.ID, string(dims), string(prohibitions), now,
+	)
+	if err != nil {
+		t.Fatalf("insert v1: %v", err)
+	}
+
+	resp := postJSON(t, owner, srv.URL+"/api/cards/"+fix.ID+"/versions", `{
+			"levels":{"sentence_rhythm":70},
+			"rewrite_summaries":false,
+			"model":""
+		}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST versions status: %d body=%v", resp.StatusCode, got)
+	}
+	if intFromJSON(got["version"]) != 2 {
+		t.Fatalf("new version: %v", got["version"])
+	}
+	if got["kind"] != "extracted" {
+		t.Fatalf("kind: %v", got["kind"])
+	}
+	dimsMap, _ := got["dimensions"].(map[string]any)
+	sr, _ := dimsMap["sentence_rhythm"].(map[string]any)
+	if intFromJSON(sr["level"]) != 70 {
+		t.Fatalf("v2 level: %v", sr)
+	}
+
+	v1, err := owner.Get(srv.URL + "/api/cards/" + fix.ID + "/versions/1")
+	if err != nil {
+		t.Fatalf("get v1: %v", err)
+	}
+	old := decodeJSON(t, v1)
+	if v1.StatusCode != http.StatusOK {
+		t.Fatalf("v1 status: %d body=%v", v1.StatusCode, old)
+	}
+	if intFromJSON(old["version"]) != 1 {
+		t.Fatalf("v1 version: %v", old["version"])
+	}
+	oldDims, _ := old["dimensions"].(map[string]any)
+	oldSR, _ := oldDims["sentence_rhythm"].(map[string]any)
+	if intFromJSON(oldSR["level"]) != 50 {
+		t.Fatalf("v1 level changed: %v", oldSR)
+	}
+
+	exp, err := owner.Get(srv.URL + "/api/cards/" + fix.ID + "/export")
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	defer exp.Body.Close()
+	if exp.StatusCode != http.StatusOK {
+		t.Fatalf("export status: %d", exp.StatusCode)
+	}
+	if ct := exp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("export content-type: %q", ct)
+	}
+	cd := exp.Header.Get("Content-Disposition")
+	if !strings.Contains(cd, "simulation_profile.json") {
+		t.Fatalf("content-disposition: %q", cd)
+	}
+	body, err := io.ReadAll(exp.Body)
+	if err != nil {
+		t.Fatalf("export body: %v", err)
+	}
+	var profile map[string]any
+	if err := json.Unmarshal(body, &profile); err != nil {
+		t.Fatalf("export json: %v", err)
+	}
+	if profile["version"] != "simulation_profile.v1" {
+		t.Fatalf("export version: %v", profile["version"])
+	}
+}
+
 func TestExtractOtherUserProject404(t *testing.T) {
 	srv := newTestServer(t)
 	owner := clientWithJar(t)

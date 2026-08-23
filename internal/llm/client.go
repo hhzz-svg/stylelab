@@ -12,13 +12,14 @@ import (
 )
 
 const (
-	defaultOpenAIBase   = "https://api.openai.com"
+	defaultOpenAIBase    = "https://api.openai.com"
 	anthropicMessagesURL = "https://api.anthropic.com/v1/messages"
-	anthropicVersion    = "2023-06-01"
-	httpTimeout         = 120 * time.Second
-	retryWait1          = 500 * time.Millisecond
-	retryWait2          = 1500 * time.Millisecond
-	maxAttempts         = 3
+	anthropicVersion     = "2023-06-01"
+	httpTimeout          = 180 * time.Second
+	defaultAnthropicMax  = 4096
+	retryWait1           = 500 * time.Millisecond
+	retryWait2           = 1500 * time.Millisecond
+	maxAttempts          = 3
 )
 
 type Message struct {
@@ -27,16 +28,17 @@ type Message struct {
 }
 
 type Request struct {
-	Provider string // openai | anthropic | compatible
-	BaseURL  string
-	APIKey   string
-	Model    string
-	Temp     float64
-	Messages []Message
+	Provider  string // openai | anthropic | compatible
+	BaseURL   string
+	APIKey    string
+	Model     string
+	Temp      float64
+	MaxTokens int // 0 = provider default (Anthropic 4096)
+	Messages  []Message
 }
 
 type Client struct {
-	HTTP *http.Client // 120s timeout
+	HTTP *http.Client // 180s timeout
 }
 
 var defaultHTTP = &http.Client{Timeout: httpTimeout}
@@ -98,8 +100,10 @@ func (c *Client) do(ctx context.Context, req Request) (string, int, error) {
 
 func (c *Client) buildRequest(ctx context.Context, req Request) (*http.Request, error) {
 	switch req.Provider {
-	case "openai", "compatible":
+	case "chat", "openai", "compatible", "":
 		return buildOpenAIRequest(ctx, req)
+	case "response", "responses":
+		return buildResponseRequest(ctx, req)
 	case "anthropic":
 		return buildAnthropicRequest(ctx, req)
 	default:
@@ -108,19 +112,43 @@ func (c *Client) buildRequest(ctx context.Context, req Request) (*http.Request, 
 }
 
 func buildOpenAIRequest(ctx context.Context, req Request) (*http.Request, error) {
-	payload, err := json.Marshal(struct {
-		Model       string    `json:"model"`
-		Temperature float64   `json:"temperature"`
-		Messages    []Message `json:"messages"`
-	}{
-		Model:       req.Model,
-		Temperature: req.Temp,
-		Messages:    req.Messages,
-	})
+	body := map[string]any{
+		"model":       req.Model,
+		"temperature": req.Temp,
+		"messages":    req.Messages,
+	}
+	if req.MaxTokens > 0 {
+		body["max_tokens"] = req.MaxTokens
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, OpenAIURL(req.BaseURL), bytes.NewReader(payload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, OpenAIURL(req.BaseURL), bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if req.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+	}
+	return httpReq, nil
+}
+
+func buildResponseRequest(ctx context.Context, req Request) (*http.Request, error) {
+	body := map[string]any{
+		"model":       req.Model,
+		"temperature": req.Temp,
+		"input":       req.Messages,
+	}
+	if req.MaxTokens > 0 {
+		body["max_tokens"] = req.MaxTokens
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, ResponseURL(req.BaseURL), bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +169,10 @@ func buildAnthropicRequest(ctx context.Context, req Request) (*http.Request, err
 		}
 		msgs = append(msgs, m)
 	}
+	maxTokens := req.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultAnthropicMax
+	}
 	payload, err := json.Marshal(struct {
 		Model       string    `json:"model"`
 		MaxTokens   int       `json:"max_tokens"`
@@ -149,7 +181,7 @@ func buildAnthropicRequest(ctx context.Context, req Request) (*http.Request, err
 		Messages    []Message `json:"messages"`
 	}{
 		Model:       req.Model,
-		MaxTokens:   4096,
+		MaxTokens:   maxTokens,
 		Temperature: req.Temp,
 		System:      strings.Join(systemParts, "\n\n"),
 		Messages:    msgs,
@@ -157,7 +189,7 @@ func buildAnthropicRequest(ctx context.Context, req Request) (*http.Request, err
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicMessagesURL, bytes.NewReader(payload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, AnthropicURL(req.BaseURL), bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -182,6 +214,33 @@ func parseResponse(provider string, body []byte) (string, error) {
 			return "", fmt.Errorf("llm: empty anthropic content")
 		}
 		return parsed.Content[0].Text, nil
+	case "response", "responses":
+		var parsed struct {
+			OutputText string `json:"output_text"`
+			Output     []struct {
+				Content []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"output"`
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal(body, &parsed); err == nil {
+			if parsed.OutputText != "" {
+				return parsed.OutputText, nil
+			}
+			if len(parsed.Output) > 0 && len(parsed.Output[0].Content) > 0 {
+				return parsed.Output[0].Content[0].Text, nil
+			}
+			if len(parsed.Choices) > 0 && parsed.Choices[0].Message.Content != "" {
+				return parsed.Choices[0].Message.Content, nil
+			}
+		}
+		return "", fmt.Errorf("llm: empty response output")
 	default:
 		var parsed struct {
 			Choices []struct {
@@ -191,13 +250,43 @@ func parseResponse(provider string, body []byte) (string, error) {
 			} `json:"choices"`
 		}
 		if err := json.Unmarshal(body, &parsed); err != nil {
-			return "", fmt.Errorf("llm: decode openai: %w", err)
+			return "", fmt.Errorf("llm: decode chat: %w", err)
 		}
 		if len(parsed.Choices) == 0 {
-			return "", fmt.Errorf("llm: empty openai choices")
+			return "", fmt.Errorf("llm: empty chat choices")
 		}
 		return parsed.Choices[0].Message.Content, nil
 	}
+}
+
+func AnthropicURL(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return anthropicMessagesURL
+	}
+	base = strings.TrimRight(base, "/")
+	if strings.HasSuffix(base, "/v1/messages") {
+		return base
+	}
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/messages"
+	}
+	return base + "/v1/messages"
+}
+
+func ResponseURL(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return defaultOpenAIBase + "/v1/responses"
+	}
+	base = strings.TrimRight(base, "/")
+	if strings.HasSuffix(base, "/v1/responses") {
+		return base
+	}
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/responses"
+	}
+	return base + "/v1/responses"
 }
 
 func OpenAIURL(base string) string {

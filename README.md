@@ -89,11 +89,14 @@ services:
 1. **Account** — register / login. Session cookie: `stylelab_session` (httpOnly, 14 days).
 2. **Settings → BYOK** — save an OpenAI, Anthropic, or OpenAI-compatible key. Only last 4 chars are shown later.
 3. **Project** — create a project, upload `.txt` / `.md` samples (max 2 MiB each).
-4. **Extract (抽离风格)** — job kind `extract`. Deterministic metrics plus an LLM pass produce a 9-dimension card (`kind=extracted`). Total sample runes must be ≤ 100_000.
-5. **Lab** — edit levels, save a new card version, export JSON.
-6. **Fuse** — pick 2–4 cards, assign per-dimension weights that sum to 100, job kind `fuse` (`kind=fused`, lineage `fuse-v1`).
-7. **Audit** — dual personas `commercial_web` and `literary_texture`. Job kind `audit`. Review strengths, risks, conflicts, recommended edits.
-8. **Sample (试写)** — short chapter from a premise (≤ 80 runes), target 800–2000 runes. Job kind `sample`.
+4. **Extract (抽离)** — `/p/:id`. Source shelf, selected-material tray, 100,000-rune cap, and a card mold. Job kind `extract` stays on this page; the new card appears in place with laboratory and fusion actions.
+5. **Card library (牌库)** — `/p/:id/cards`. Search and filter `CardSummary` rows. Full nine-dimension data loads only when a card is opened.
+6. **Lab** — `/p/:id/lab/:cardId`. Identity, radar, focused dimension, versions, constraints, and a sticky save bar. Saving still creates a new card version. Export JSON from the same bar.
+7. **Fuse** — `/p/:id/fuse`. Four slots, 2–4 parents, balanced / dominant-70% / custom recipes. Per-dimension integer weights must total 100. A local level preview uses the versions frozen at selection. Job kind `fuse` stays on this page (`kind=fused`, lineage `fuse-v1`).
+8. **Audit** — dual personas `commercial_web` and `literary_texture`. Job kind `audit`. Review strengths, risks, conflicts, recommended edits.
+9. **Sample (试写)** — short chapter from a premise (≤ 80 runes), target 800–2000 runes. Job kind `sample`.
+10. **Write** — `/p/:id/write` lists chapter briefs. `/p/:id/chapter/:chapterId` is a chapter workbench: body in the main column, bound style card and previous-chapter tail in the intel rail, sticky save / write / prev / next. The write API is unchanged.
+11. **Story bible (设定集)** — `/p/:id/bible`. Register characters, settings, and threads (手动 CRUD). Entries are injected into the chapter generation prompt; after each chapter is written, an LLM pass incrementally maintains the bible (新增/更新，AI 不删除条目，失败不致命). For existing projects, `从已有章节同步` starts a `bible_sync` job that replays every written chapter in seq order to rebuild the bible. The chapter workbench intel rail also shows the current bible grouped by kind.
 
 Jobs are in-process (`queued` → `running` → `succeeded` / `failed` / `canceled`). Default concurrency is 2. A process restart marks leftover `running` rows `failed` with `interrupted`.
 

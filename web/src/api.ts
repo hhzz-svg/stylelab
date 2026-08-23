@@ -2,7 +2,14 @@ import type {
   APIErrorBody,
   Asset,
   AuditReport,
+  BibleEntry,
+  BibleEntrySummary,
   CardSummary,
+  Chapter,
+  ChapterSummary,
+  GraphData,
+  GraphEdge,
+  GraphNode,
   Job,
   LLMKey,
   Me,
@@ -23,6 +30,29 @@ export class APIError extends Error {
   }
 }
 
+/** 网络层失败（断网、超时、DNS），status 固定 0，区别于服务端错误。 */
+export class NetworkError extends Error {
+  status = 0
+  code = 'network'
+
+  constructor(message: string) {
+    super(message)
+  }
+}
+
+export type ToastAction = { label: string; to: string }
+
+/** 向全局 toast 栈广播一条消息。零依赖：UI 层通过监听事件渲染。 */
+export function notify(
+  message: string,
+  kind: 'success' | 'error' | 'info' = 'info',
+  action?: ToastAction,
+) {
+  window.dispatchEvent(new CustomEvent('app:toast', { detail: { message, kind, action } }))
+}
+
+const DEFAULT_TIMEOUT_MS = 30_000
+
 async function parseError(res: Response): Promise<APIError> {
   let code = 'invalid'
   let message = res.statusText || 'request failed'
@@ -36,24 +66,38 @@ async function parseError(res: Response): Promise<APIError> {
   return new APIError(res.status, code, message)
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
-  const res = await fetch(path, {
-    ...init,
-    headers,
-    credentials: 'include',
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let res: Response
+  try {
+    res = await fetch(path, {
+      ...init,
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new NetworkError('请求超时，请重试')
+    }
+    throw new NetworkError('无法连接服务，请检查网络')
+  } finally {
+    clearTimeout(timer)
+  }
   if (res.status === 204) {
     return undefined as T
   }
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith('/api/auth/')) {
+      // 会话过期：交给 App 统一软跳转登录页（保留当前路由，登录后回来）
+      window.dispatchEvent(new CustomEvent('app:unauth'))
+    }
     throw await parseError(res)
-  }
-  if (res.status === 202 || res.headers.get('content-type')?.includes('application/json')) {
-    return (await res.json()) as T
   }
   return (await res.json()) as T
 }
@@ -85,6 +129,8 @@ export const api = {
 
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),
 
+  deleteProject: (id: string) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
+
   listAssets: (projectId: string) =>
     request<{ assets: Asset[] }>(`/api/projects/${projectId}/assets`),
 
@@ -107,6 +153,20 @@ export const api = {
 
   listCards: (projectId: string) =>
     request<{ cards: CardSummary[] }>(`/api/projects/${projectId}/cards`),
+
+  createCard: (
+    projectId: string,
+    body: {
+      name: string
+      kind?: string
+      dimensions: Record<string, { level: number; summary: string; techniques: string[] }>
+      prohibitions: string[]
+    },
+  ) =>
+    request<StyleCard>(`/api/projects/${projectId}/cards`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   getCard: (id: string) => request<StyleCard>(`/api/cards/${id}`),
 
@@ -165,6 +225,92 @@ export const api = {
 
   getSample: (id: string) => request<SampleChapter>(`/api/samples/${id}`),
 
+  listChapters: (projectId: string) =>
+    request<{ chapters: ChapterSummary[] }>(`/api/projects/${projectId}/chapters`),
+
+  createChapter: (projectId: string, title: string, brief: string, cardId: string) =>
+    request<Chapter>(`/api/projects/${projectId}/chapters`, {
+      method: 'POST',
+      body: JSON.stringify({ title, brief, card_id: cardId }),
+    }),
+
+  getChapter: (id: string) => request<Chapter>(`/api/chapters/${id}`),
+
+  patchChapter: (
+    id: string,
+    body: {
+      title?: string
+      brief?: string
+      body?: string
+      summary?: string
+      card_id?: string
+      target_runes?: number
+    },
+  ) =>
+    request<Chapter>(`/api/chapters/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  deleteChapter: (id: string) => request<void>(`/api/chapters/${id}`, { method: 'DELETE' }),
+
+  writeChapter: (id: string, model: string, targetRunes: number, note: string) =>
+    request<{ job_id: string }>(`/api/chapters/${id}/write`, {
+      method: 'POST',
+      body: JSON.stringify({ model, target_runes: targetRunes, note }),
+    }),
+
+  downloadManuscript: async (projectId: string, filename = 'manuscript.md') => {
+    const res = await fetch(`/api/projects/${projectId}/manuscript.md`, { credentials: 'include' })
+    if (!res.ok) {
+      if (res.status === 401) window.dispatchEvent(new CustomEvent('app:unauth'))
+      throw await parseError(res)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+
+  listBible: (projectId: string) =>
+    request<{ entries: BibleEntrySummary[] }>(`/api/projects/${projectId}/bible`),
+
+  getBible: (id: string) => request<BibleEntry>(`/api/bible/${id}`),
+
+  createBible: (
+    projectId: string,
+    kind: string,
+    name: string,
+    content: string,
+    status: string,
+  ) =>
+    request<BibleEntry>(`/api/projects/${projectId}/bible`, {
+      method: 'POST',
+      body: JSON.stringify({ kind, name, content, status }),
+    }),
+
+  patchBible: (
+    id: string,
+    body: { kind?: string; name?: string; content?: string; status?: string },
+  ) =>
+    request<BibleEntry>(`/api/bible/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  deleteBible: (id: string) => request<void>(`/api/bible/${id}`, { method: 'DELETE' }),
+
+  syncBible: (projectId: string, model: string) =>
+    request<{ job_id: string }>(`/api/projects/${projectId}/bible/sync`, {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
+
   listLLMKeys: () => request<{ keys: LLMKey[] }>('/api/me/llm-keys'),
 
   putLLMKey: (provider: string, apiKey: string, baseURL: string) =>
@@ -175,4 +321,35 @@ export const api = {
 
   deleteLLMKey: (provider: string) =>
     request<void>(`/api/me/llm-keys/${provider}`, { method: 'DELETE' }),
+
+  getGraph: (projectId: string) =>
+    request<GraphData>(`/api/projects/${projectId}/graph`),
+
+  saveGraphNode: (projectId: string, node: Partial<GraphNode>) =>
+    request<{ id: string; ok: boolean }>(`/api/projects/${projectId}/graph/nodes`, {
+      method: 'POST',
+      body: JSON.stringify(node),
+    }),
+
+  deleteGraphNode: (projectId: string, nodeId: string) =>
+    request<{ ok: boolean }>(`/api/projects/${projectId}/graph/nodes/${nodeId}`, {
+      method: 'DELETE',
+    }),
+
+  saveGraphEdge: (projectId: string, edge: Partial<GraphEdge>) =>
+    request<{ id: string; ok: boolean }>(`/api/projects/${projectId}/graph/edges`, {
+      method: 'POST',
+      body: JSON.stringify(edge),
+    }),
+
+  deleteGraphEdge: (projectId: string, edgeId: string) =>
+    request<{ ok: boolean }>(`/api/projects/${projectId}/graph/edges/${edgeId}`, {
+      method: 'DELETE',
+    }),
+
+  extractGraph: (projectId: string) =>
+    request<GraphData>(`/api/projects/${projectId}/graph/extract`, {
+      method: 'POST',
+    }),
 }
+

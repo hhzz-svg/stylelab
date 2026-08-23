@@ -20,6 +20,11 @@ func Handler(next http.Handler) http.Handler {
 	}
 	fileServer := http.FileServer(http.FS(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Global Security Headers
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
 		if strings.HasPrefix(r.URL.Path, "/api") {
 			next.ServeHTTP(w, r)
 			return
@@ -29,6 +34,9 @@ func Handler(next http.Handler) http.Handler {
 			return
 		}
 		if serveStatic(root, r.URL.Path) {
+			if strings.HasPrefix(r.URL.Path, "/assets/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}

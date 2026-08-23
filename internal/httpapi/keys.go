@@ -11,8 +11,11 @@ import (
 )
 
 var allowedProviders = map[string]bool{
-	"openai":     true,
 	"anthropic":  true,
+	"response":   true,
+	"responses":  true,
+	"chat":       true,
+	"openai":     true,
 	"compatible": true,
 }
 

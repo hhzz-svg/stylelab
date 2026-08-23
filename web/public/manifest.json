@@ -1,0 +1,17 @@
+﻿{
+  "short_name": "StyleLab",
+  "name": "StyleLab · 小说风格工坊",
+  "description": "下一代 AI 辅助网文深度创作与文风熔炼系统",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "64x64 128x128 256x256"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#070a0f",
+  "theme_color": "#070a0f",
+  "display": "standalone",
+  "orientation": "any"
+}

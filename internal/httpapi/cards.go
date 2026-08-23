@@ -15,6 +15,7 @@ import (
 	"stylelab/internal/card"
 	"stylelab/internal/cryptokey"
 	"stylelab/internal/fuse"
+	"stylelab/internal/ids"
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
 )
@@ -439,7 +440,7 @@ func (s *Server) loadUserLLMKey(ctx context.Context, userID string) (llmKeyRow, 
 		return llmKeyRow{}, fmt.Errorf("invalid: missing llm key")
 	}
 	for _, k := range keys {
-		if k.provider == "openai" {
+		if k.provider == "chat" || k.provider == "response" || k.provider == "openai" {
 			return k, nil
 		}
 	}
@@ -469,3 +470,118 @@ func parseRewriteJSON(raw string) (map[string]card.Dimension, error) {
 	}
 	return out.Dimensions, nil
 }
+
+type createCardRequest struct {
+	Name         string                    `json:"name"`
+	Kind         string                    `json:"kind"`
+	Dimensions   map[string]card.Dimension `json:"dimensions"`
+	Prohibitions []string                  `json:"prohibitions"`
+}
+
+func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
+	userID, err := s.currentUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	projectID := r.PathValue("id")
+	if err := s.requireOwnedProject(r.Context(), projectID, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found", "not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+
+	var in createCardRequest
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid", "invalid json")
+		return
+	}
+
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		name = "未命名风格卡"
+	}
+	kind := strings.TrimSpace(in.Kind)
+	if kind == "" {
+		kind = "manual"
+	}
+
+	dims := in.Dimensions
+	if dims == nil {
+		dims = make(map[string]card.Dimension)
+	}
+	for _, k := range card.DimensionKeys {
+		if _, ok := dims[k]; !ok {
+			dims[k] = card.Dimension{Level: 50, Summary: "", Techniques: []string{}}
+		}
+	}
+
+	prohibitions := in.Prohibitions
+	if prohibitions == nil {
+		prohibitions = []string{}
+	}
+
+	dimsJSON, err := json.Marshal(dims)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "marshal error")
+		return
+	}
+	prohibJSON, err := json.Marshal(prohibitions)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "marshal error")
+		return
+	}
+
+	cardID := ids.New("crd_")
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	tx, err := s.st.DB().BeginTx(r.Context(), nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(
+		r.Context(),
+		`INSERT INTO style_cards (id, project_id, name, kind, current_version, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 1, ?, ?)`,
+		cardID, projectID, name, kind, now, now,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+
+	verID := ids.New("ver_")
+	if _, err := tx.ExecContext(
+		r.Context(),
+		`INSERT INTO style_card_versions
+		 (id, card_id, version, dimensions_json, prohibitions_json, facts_json, lineage_json, created_at)
+		 VALUES (?, ?, 1, ?, ?, '{}', NULL, ?)`,
+		verID, cardID, string(dimsJSON), string(prohibJSON), now,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+
+	resCard := card.Card{
+		ID:           cardID,
+		ProjectID:    projectID,
+		Name:         name,
+		Kind:         kind,
+		Version:      1,
+		Dimensions:   dims,
+		Prohibitions: prohibitions,
+		Facts:        json.RawMessage(`{}`),
+	}
+	writeJSON(w, http.StatusCreated, resCard)
+}
+

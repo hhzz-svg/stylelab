@@ -259,7 +259,7 @@ func loadUserKey(ctx context.Context, st *store.Store, master []byte, userID str
 		return llmKey{}, fmt.Errorf("invalid: missing llm key")
 	}
 	for _, k := range keys {
-		if k.Provider == "openai" {
+		if k.Provider == "chat" || k.Provider == "response" || k.Provider == "openai" {
 			return k, nil
 		}
 	}

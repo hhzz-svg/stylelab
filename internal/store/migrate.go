@@ -92,6 +92,70 @@ CREATE TABLE IF NOT EXISTS samples (
   facts_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chapters (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  card_id TEXT NOT NULL DEFAULT '',
+  card_version INTEGER NOT NULL DEFAULT 0,
+  seq INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  brief TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  target_runes INTEGER NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_id, seq)
+);
+CREATE TABLE IF NOT EXISTS bible_entries (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active',
+  origin TEXT NOT NULL DEFAULT 'manual',
+  source_seq INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_graph_nodes (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  faction TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  details_json TEXT NOT NULL DEFAULT '{}',
+  x REAL NOT NULL DEFAULT 0,
+  y REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_graph_edges (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  relation TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  strength REAL NOT NULL DEFAULT 1.0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Performance & Query Optimization Indexes
+CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chapters_project_seq ON chapters(project_id, seq ASC);
+CREATE INDEX IF NOT EXISTS idx_style_cards_project ON style_cards(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bible_entries_project ON bible_entries(project_id, status, kind);
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_project ON project_graph_nodes(project_id, kind);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_project ON project_graph_edges(project_id, source_id, target_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(user_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_project_status ON jobs(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
 `
 
 func migrate(db *sql.DB) error {

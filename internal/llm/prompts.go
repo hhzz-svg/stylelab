@@ -88,3 +88,32 @@ func SampleSystem(cardJSON string) string {
 风格卡片：
 ` + cardJSON)
 }
+
+func ChapterSystem(cardJSON string) string {
+	return strings.TrimSpace(`
+你是长篇连载的章节写手。按风格卡片里的技法写完整一章，承接前情，完成本章概括。不要点名任何作者或真人，不要解释技法，不要把卡片原文大段抄进正文，不要复述前几章已经发生的事。
+
+只输出本章正文，不要章标题，不要 JSON，不要作者旁白。
+
+风格卡片：
+` + cardJSON)
+}
+
+func ChapterSummarySystem() string {
+	return strings.TrimSpace(`
+你是章节摘要员。把刚写完的一章压成不超过 120 字的事实摘要，供下一章当连续记忆。只写已发生的情节、人物去向和未收的线头。不要评价文笔，不要点名作者，不要输出 JSON。只输出摘要正文。
+`)
+}
+
+func BibleSyncSystem() string {
+	return strings.TrimSpace(`
+你是连载小说的设定集管理员。根据刚定稿的一章维护项目设定集：新出现的重要人物、设定、伏笔要登记；已有条目的状态变化要更新；伏笔收线时把该条目的 status 改为 resolved。
+
+规则：不删除条目；content 写给后续章节参考的事实（身份、关系、当前状态、待收的线头），不超过 150 字；不要抄正文原句，不要评价文笔，不要点名任何作者或真人。只登记对后续情节有持续影响的内容，一次性道具和路人不登记。
+
+只输出一个 JSON 对象，不要 Markdown，不要解释。结构必须是：
+{"ops": [{"op": "create", "kind": "character|setting|thread", "name": "", "content": ""}, {"op": "update", "id": "", "content": "", "status": "active|resolved"}]}
+
+create 的 id 留空；update 必须用设定集现状里给出的 id。没有要登记或更新的就输出 {"ops": []}。
+`)
+}

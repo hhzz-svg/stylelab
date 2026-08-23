@@ -24,6 +24,7 @@ export type JobResult = {
   card_id?: string
   audit_id?: string
   sample_id?: string
+  chapter_id?: string
 }
 
 export type Job = {
@@ -78,6 +79,12 @@ export const DIMENSION_LABELS: Record<DimensionKey, string> = {
   tension_hook: '张力钩子',
 }
 
+export const KIND_LABEL: Record<string, string> = {
+  extracted: '抽离',
+  fused: '融合',
+  manual: '手调',
+}
+
 export type Dimension = {
   level: number
   summary: string
@@ -114,6 +121,27 @@ export type CardSummary = {
   updated_at: string
 }
 
+export type CardRef = {
+  cardId: string
+  version: number
+}
+
+export type BlendMode = 'balanced' | 'dominant' | 'custom'
+
+export type FuseParentDraft = CardRef & {
+  activeDims: Record<DimensionKey, boolean>
+  weights: Record<DimensionKey, number>
+}
+
+export type FuseDraft = {
+  name: string
+  parents: FuseParentDraft[]
+  mode: BlendMode
+  dominantCardId?: string
+  focusDimension: DimensionKey
+  model: string
+}
+
 export type PersonaView = {
   strengths: string[]
   risks: string[]
@@ -148,3 +176,102 @@ export type SampleChapter = {
   card_id: string
   card_version: number
 }
+
+export type ChapterStatus = 'draft' | 'writing' | 'written' | 'failed'
+
+export type ChapterSummary = {
+  id: string
+  seq: number
+  title: string
+  brief: string
+  status: ChapterStatus
+  rune_count: number
+  has_summary: boolean
+  card_id: string
+  target_runes: number
+  updated_at: string
+}
+
+export type Chapter = {
+  id: string
+  project_id: string
+  card_id: string
+  card_version: number
+  seq: number
+  title: string
+  brief: string
+  body: string
+  summary: string
+  status: ChapterStatus
+  target_runes: number
+  model: string
+  created_at: string
+  updated_at: string
+}
+
+export type BibleEntryKind = 'character' | 'setting' | 'thread'
+
+export type BibleEntryStatus = 'active' | 'resolved'
+
+export type BibleEntry = {
+  id: string
+  project_id: string
+  kind: BibleEntryKind
+  name: string
+  content: string
+  status: BibleEntryStatus
+  origin: 'manual' | 'auto'
+  source_seq: number
+  created_at: string
+  updated_at: string
+}
+
+export type BibleEntrySummary = {
+  id: string
+  kind: BibleEntryKind
+  name: string
+  status: BibleEntryStatus
+  origin: 'manual' | 'auto'
+  source_seq: number
+  content_preview: string
+  updated_at: string
+}
+
+export type GraphNodeKind = 'character' | 'faction' | 'artifact' | 'location'
+
+export type GraphNode = {
+  id: string
+  project_id: string
+  name: string
+  kind: GraphNodeKind
+  faction: string
+  summary: string
+  details: {
+    realm?: string
+    temperament?: string
+    secrets?: string
+    [key: string]: any
+  }
+  x: number
+  y: number
+  created_at: string
+  updated_at: string
+}
+
+export type GraphEdge = {
+  id: string
+  project_id: string
+  source_id: string
+  target_id: string
+  relation: string
+  description: string
+  strength: number
+  created_at: string
+  updated_at: string
+}
+
+export type GraphData = {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+

@@ -31,6 +31,8 @@ func TestOpenCreatesTablesAndBlobDir(t *testing.T) {
 		"jobs",
 		"audit_reports",
 		"samples",
+		"chapters",
+		"bible_entries",
 	}
 	got := map[string]bool{}
 	rows, err := st.DB().Query(`SELECT name FROM sqlite_master WHERE type='table'`)

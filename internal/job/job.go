@@ -9,10 +9,12 @@ import (
 type Kind string
 
 const (
-	KindExtract Kind = "extract"
-	KindFuse    Kind = "fuse"
-	KindAudit   Kind = "audit"
-	KindSample  Kind = "sample"
+	KindExtract   Kind = "extract"
+	KindFuse      Kind = "fuse"
+	KindAudit     Kind = "audit"
+	KindSample    Kind = "sample"
+	KindWrite     Kind = "write"
+	KindBibleSync Kind = "bible_sync"
 )
 
 type Status string

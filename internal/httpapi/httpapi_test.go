@@ -1820,13 +1820,44 @@ func TestSessionCookieFlags(t *testing.T) {
 	if cookie.MaxAge != 14*24*60*60 {
 		t.Fatalf("MaxAge: %d", cookie.MaxAge)
 	}
-	if cookie.Secure {
-		t.Fatal("Secure should be false without TLS")
+		if cookie.Secure {
+			t.Fatal("Secure should be false without TLS")
+		}
+		if len(cookie.Value) != 64 {
+			t.Fatalf("cookie value length: %d", len(cookie.Value))
+		}
 	}
-	if len(cookie.Value) != 64 {
-		t.Fatalf("cookie value length: %d", len(cookie.Value))
+
+	func TestSessionCookieSecureBehindHTTPSProxy(t *testing.T) {
+		srv := newTestServer(t)
+		req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/auth/register", strings.NewReader(`{"email":"proxy-flags@example.com","password":"password1"}`))
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("Do: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("register: %d", resp.StatusCode)
+		}
+		var cookie *http.Cookie
+		for _, c := range resp.Cookies() {
+			if c.Name == "stylelab_session" {
+				cookie = c
+				break
+			}
+		}
+		if cookie == nil {
+			t.Fatal("missing stylelab_session")
+		}
+		if !cookie.Secure {
+			t.Fatal("Secure should be true behind an HTTPS proxy")
+		}
 	}
-}
 
 func hasSessionCookie(resp *http.Response) bool {
 	for _, c := range resp.Cookies() {
@@ -1918,4 +1949,210 @@ func assertAPIError(t *testing.T, body map[string]any, code string) {
 	if msg == "" {
 		t.Fatalf("error.message empty: %v", body)
 	}
+}
+
+func patchJSON(t *testing.T, c *http.Client, rawURL, payload string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPatch, rawURL, strings.NewReader(payload))
+	if err != nil {
+		t.Fatalf("PATCH %s: %v", rawURL, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH %s: %v", rawURL, err)
+	}
+	return resp
+}
+
+func TestBibleCRUDAndOwnership(t *testing.T) {
+	t.Setenv("STYLELAB_DEV_INSECURE_KEY", "1")
+	t.Setenv("STYLELAB_MASTER_KEY", "")
+	t.Setenv("STYLELAB_DATA_DIR", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.DataDir = t.TempDir()
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	runner := job.NewRunner(st, 1)
+	runner.Start(context.Background())
+	srv := httptest.NewServer(httpapi.New(st, cfg, runner))
+	t.Cleanup(srv.Close)
+
+	c := clientWithJar(t)
+	reg := postJSON(t, c, srv.URL+"/api/auth/register", `{"email":"bible@example.com","password":"password1"}`)
+	reg.Body.Close()
+	if reg.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", reg.StatusCode)
+	}
+	create := postJSON(t, c, srv.URL+"/api/projects", `{"name":"设定集项目"}`)
+	created := decodeJSON(t, create)
+	projectID, _ := created["id"].(string)
+
+	// 空列表
+	list := decodeJSON(t, mustGet(t, c, srv.URL+"/api/projects/"+projectID+"/bible"))
+	if _, ok := list["entries"].([]any); !ok {
+		t.Fatalf("entries should be array: %v", list["entries"])
+	}
+
+	// 创建
+	resp := postJSON(t, c, srv.URL+"/api/projects/"+projectID+"/bible", `{"kind":"character","name":"沈砚","content":"冷面剑客","status":"active"}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d body=%v", resp.StatusCode, got)
+	}
+	entryID, _ := got["id"].(string)
+	if !strings.HasPrefix(entryID, "bib_") {
+		t.Fatalf("entry id: %v", got["id"])
+	}
+	if got["origin"] != "manual" {
+		t.Fatalf("origin should be manual: %v", got["origin"])
+	}
+
+	// GET 单条返回完整 content
+	getResp := mustGet(t, c, srv.URL+"/api/bible/"+entryID)
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("get entry: %d", getResp.StatusCode)
+	}
+	gotEntry := decodeJSON(t, getResp)
+	if gotEntry["content"] != "冷面剑客" {
+		t.Fatalf("get content: %v", gotEntry["content"])
+	}
+
+	// 校验：坏 kind
+	bad := decodeJSON(t, postJSON(t, c, srv.URL+"/api/projects/"+projectID+"/bible", `{"kind":"weapon","name":"刀","content":""}`))
+	assertAPIError(t, bad, "invalid")
+	// 坏 name
+	bad = decodeJSON(t, postJSON(t, c, srv.URL+"/api/projects/"+projectID+"/bible", `{"kind":"character","name":"","content":""}`))
+	assertAPIError(t, bad, "invalid")
+
+	// 列表回显
+	list = decodeJSON(t, mustGet(t, c, srv.URL+"/api/projects/"+projectID+"/bible"))
+	entries, _ := list["entries"].([]any)
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+
+	// PATCH 更新
+	patched := decodeJSON(t, patchJSON(t, c, srv.URL+"/api/bible/"+entryID, `{"content":"冷面剑客，左臂旧伤","status":"active"}`))
+	if patched["content"] != "冷面剑客，左臂旧伤" {
+		t.Fatalf("patch content: %v", patched["content"])
+	}
+	if patched["origin"] != "manual" {
+		t.Fatalf("patch should keep manual origin: %v", patched["origin"])
+	}
+
+	// DELETE
+	del, err := deleteReq(t, c, srv.URL+"/api/bible/"+entryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if del.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete: %d", del.StatusCode)
+	}
+	del.Body.Close()
+	list = decodeJSON(t, mustGet(t, c, srv.URL+"/api/projects/"+projectID+"/bible"))
+	entries, _ = list["entries"].([]any)
+	if len(entries) != 0 {
+		t.Fatalf("want 0 entries after delete, got %d", len(entries))
+	}
+
+	// 跨用户 404
+	other := clientWithJar(t)
+	reg = postJSON(t, other, srv.URL+"/api/auth/register", `{"email":"bible-other@example.com","password":"password1"}`)
+	reg.Body.Close()
+	othersList := mustGet(t, other, srv.URL+"/api/projects/"+projectID+"/bible")
+	if othersList.StatusCode != http.StatusNotFound {
+		t.Fatalf("other user should get 404, got %d", othersList.StatusCode)
+	}
+	assertAPIError(t, decodeJSON(t, othersList), "not_found")
+	othersList.Body.Close()
+}
+
+func TestBibleSyncStartsJob(t *testing.T) {
+	t.Setenv("STYLELAB_DEV_INSECURE_KEY", "1")
+	t.Setenv("STYLELAB_MASTER_KEY", "")
+	t.Setenv("STYLELAB_DATA_DIR", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.DataDir = t.TempDir()
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	runner := job.NewRunner(st, 1)
+	runner.Register(job.KindBibleSync, func(ctx context.Context, rec job.Record, prog func(int, string)) (json.RawMessage, error) {
+		prog(50, "halfway")
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(30 * time.Millisecond):
+			return json.RawMessage(`{"chapters_synced":2,"entries":3}`), nil
+		}
+	})
+	runner.Start(context.Background())
+	srv := httptest.NewServer(httpapi.New(st, cfg, runner))
+	t.Cleanup(srv.Close)
+
+	c := clientWithJar(t)
+	reg := postJSON(t, c, srv.URL+"/api/auth/register", `{"email":"biblesync@example.com","password":"password1"}`)
+	reg.Body.Close()
+	create := postJSON(t, c, srv.URL+"/api/projects", `{"name":"回填"}`)
+	created := decodeJSON(t, create)
+	projectID, _ := created["id"].(string)
+
+	resp := postJSON(t, c, srv.URL+"/api/projects/"+projectID+"/bible/sync", `{"model":"gpt-4o-mini"}`)
+	got := decodeJSON(t, resp)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("sync status: %d body=%v", resp.StatusCode, got)
+	}
+	jobID, _ := got["job_id"].(string)
+	if !strings.HasPrefix(jobID, "job_") {
+		t.Fatalf("job_id: %v", got["job_id"])
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var jobBody map[string]any
+	for {
+		get, err := c.Get(srv.URL + "/api/jobs/" + jobID)
+		if err != nil {
+			t.Fatalf("GET job: %v", err)
+		}
+		jobBody = decodeJSON(t, get)
+		status, _ := jobBody["status"].(string)
+		if status == "succeeded" {
+			break
+		}
+		if status == "failed" || status == "canceled" {
+			t.Fatalf("job ended %s: %v", status, jobBody)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job did not succeed: %v", jobBody)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if jobBody["kind"] != "bible_sync" {
+		t.Fatalf("job kind: %v", jobBody["kind"])
+	}
+	result, _ := jobBody["result"].(map[string]any)
+	if result["chapters_synced"] != float64(2) {
+		t.Fatalf("result: %v", jobBody["result"])
+	}
+}
+
+func mustGet(t *testing.T, c *http.Client, url string) *http.Response {
+	t.Helper()
+	resp, err := c.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
 }

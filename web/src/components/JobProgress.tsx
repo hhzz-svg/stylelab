@@ -1,104 +1,76 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { APIError, api } from '../api'
-import type { Job, JobResult, JobStatus } from '../types'
-
-function resultFromJob(result: Job['result']): JobResult {
-  if (!result) return {}
-  if (typeof result === 'string') {
-    try {
-      return JSON.parse(result) as JobResult
-    } catch {
-      return {}
-    }
-  }
-  return result
-}
+import { resultFromJob, resultRoute } from '../jobs'
+import { useJobPoll } from '../hooks'
+import type { JobResult, JobStatus } from '../types'
 
 type Props = {
   jobId: string
   projectId?: string
   onStatus?: (status: JobStatus) => void
+  autoNavigate?: boolean
+  onSucceeded?: (result: JobResult) => void
+  onPollError?: (error: string) => void
 }
 
-const POLL_MS = 1000
-const MAX_GET_FAILURES = 3
-
-export default function JobProgress({ jobId, projectId, onStatus }: Props) {
+/** 发起页内嵌的任务进度条：默认完成后跳转，也可由发起页原位接管结果。 */
+export default function JobProgress({
+  jobId,
+  projectId,
+  onStatus,
+  autoNavigate = true,
+  onSucceeded,
+  onPollError,
+}: Props) {
   const navigate = useNavigate()
-  const [job, setJob] = useState<Job | null>(null)
-  const [error, setError] = useState('')
+  const reportPollErrors = onPollError !== undefined
+  const { job, error } = useJobPoll(jobId, reportPollErrors ? undefined : onStatus)
+  const handled = useRef('')
   const onStatusRef = useRef(onStatus)
+  const onPollErrorRef = useRef(onPollError)
   onStatusRef.current = onStatus
+  onPollErrorRef.current = onPollError
 
   useEffect(() => {
-    let stopped = false
-    let timer: number | undefined
-    let failures = 0
+    if (reportPollErrors && job) onStatusRef.current?.(job.status)
+  }, [job, reportPollErrors])
 
-    async function tick() {
-      try {
-        const rec = await api.getJob(jobId)
-        if (stopped) return
-        failures = 0
-        setError('')
-        setJob(rec)
-        onStatusRef.current?.(rec.status)
-        if (rec.status === 'succeeded') {
-          const result = resultFromJob(rec.result)
-          if (projectId && result.card_id) {
-            navigate(`/p/${projectId}/lab/${result.card_id}`)
-            return
-          }
-          if (projectId && result.audit_id) {
-            navigate(`/p/${projectId}/audit/${result.audit_id}`)
-            return
-          }
-          if (projectId && result.sample_id) {
-            navigate(`/p/${projectId}/sample/${result.sample_id}`)
-            return
-          }
-          return
-        }
-        if (rec.status === 'failed' || rec.status === 'canceled') {
-          return
-        }
-        timer = window.setTimeout(() => {
-          void tick()
-        }, POLL_MS)
-      } catch (err) {
-        if (stopped) return
-        failures += 1
-        if (failures < MAX_GET_FAILURES) {
-          timer = window.setTimeout(() => {
-            void tick()
-          }, POLL_MS)
-          return
-        }
-        setError(err instanceof APIError ? err.message : '无法读取任务进度')
-        onStatusRef.current?.('failed')
-      }
-    }
-    void tick()
-    return () => {
-      stopped = true
-      if (timer !== undefined) window.clearTimeout(timer)
-    }
-  }, [jobId, navigate, projectId])
+  useEffect(() => {
+    if (reportPollErrors && error) onPollErrorRef.current?.(error)
+  }, [error, reportPollErrors])
+
+  useEffect(() => {
+    if (job?.status !== 'succeeded' || handled.current === job.id) return
+    handled.current = job.id
+    const result = resultFromJob(job.result)
+    onSucceeded?.(result)
+    if (!autoNavigate || !projectId) return
+    const to = resultRoute(projectId, result)
+    if (to) navigate(to)
+  }, [job, projectId, autoNavigate, onSucceeded, navigate])
 
   if (error) {
     return <p className="error">{error}</p>
   }
   if (!job) {
-    return <p className="muted">任务已提交，正在读取进度…</p>
+    return (
+      <div className="job-bar">
+        <p>任务已提交…</p>
+        <div className="job-track">
+          <div className="job-fill indet" />
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="helper">
+    <div className="job-bar">
       <p>
-        状态：{job.status} · 进度 {job.progress}%
+        {job.stage || job.status} · {job.progress}%
       </p>
-      {job.stage ? <p className="muted">{job.stage}</p> : null}
+      <div className="job-track">
+        <div className="job-fill" style={{ width: `${Math.max(4, Math.min(100, job.progress))}%` }} />
+      </div>
       {job.error ? <p className="error">{job.error}</p> : null}
     </div>
   )

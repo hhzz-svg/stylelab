@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 
 	"stylelab/internal/auth"
 )
@@ -24,7 +25,14 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, rawToken string, m
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil,
-	})
-}
+			SameSite: http.SameSiteLaxMode,
+			Secure:   requestIsHTTPS(r),
+		})
+	}
+
+	func requestIsHTTPS(r *http.Request) bool {
+		if r.TLS != nil {
+			return true
+		}
+		return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	}

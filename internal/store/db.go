@@ -24,18 +24,14 @@ func Open(dataDir string) (*Store, error) {
 	}
 
 	dbPath := filepath.Join(dataDir, "stylelab.db")
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", filepath.ToSlash(dbPath))
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)", filepath.ToSlash(dbPath))
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;`); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("pragma foreign_keys: %w", err)
-	}
-	if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("pragma busy_timeout: %w", err)
+		return nil, fmt.Errorf("pragma settings: %w", err)
 	}
 	if err := migrate(db); err != nil {
 		db.Close()

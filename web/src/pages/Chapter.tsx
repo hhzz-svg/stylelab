@@ -5,6 +5,8 @@ import {
   ArrowRight,
   BookOpenText,
   CloudRain,
+  GitFork,
+  Headphones,
   Maximize2,
   Minimize2,
   Music,
@@ -20,6 +22,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { APIError, api, notify } from '../api'
 import { ambient, type AmbientSoundType } from '../ambientSound'
 import { emptyIntel, lastRunes, neighbors, PREV_TAIL_RUNES, type ChapterIntel } from '../chapterContext'
+import AudioNarrationBar from '../components/AudioNarrationBar'
+import BranchSimulationDrawer from '../components/BranchSimulationDrawer'
 import { confirm } from '../components/ConfirmDialog'
 import ChapterIntelPanel from '../components/ChapterIntelPanel'
 import Crumb from '../components/Crumb'
@@ -87,6 +91,8 @@ export default function ChapterPage() {
   const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null)
   const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null)
   const [inlineAIOpen, setInlineAIOpen] = useState(false)
+  const [branchOpen, setBranchOpen] = useState(false)
+  const [audioOpen, setAudioOpen] = useState(false)
 
   const bodyTextareaRef = useRef<HTMLTextAreaElement>(null)
   const routeRef = useRef({ projectId, chapterId: idOfChapter })
@@ -1045,6 +1051,24 @@ export default function ChapterPage() {
               <button
                 className="btn secondary"
                 type="button"
+                onClick={() => setBranchOpen(true)}
+                title="AI 剧情破局走向推演与智能续写"
+                style={{ color: 'var(--gold-hi)', borderColor: 'rgba(212, 175, 55, 0.4)' }}
+              >
+                <GitFork size={15} />灵感推演
+              </button>
+              <button
+                className="btn secondary"
+                type="button"
+                onClick={() => setAudioOpen(true)}
+                disabled={!body.trim()}
+                title="自然语音沉浸朗读本章"
+              >
+                <Headphones size={15} />沉浸朗读
+              </button>
+              <button
+                className="btn secondary"
+                type="button"
                 onClick={() => setZenMode(true)}
                 title="全屏极简沉浸禅模式 (Esc退出)"
               >
@@ -1301,6 +1325,27 @@ export default function ChapterPage() {
             open={rhythmOpen}
             onClose={() => setRhythmOpen(false)}
           />
+
+          <BranchSimulationDrawer
+            chapterId={idOfChapter}
+            currentText={body}
+            isOpen={branchOpen}
+            onClose={() => setBranchOpen(false)}
+            onApplyContinuation={(continued) => {
+              setBody((prev) => {
+                const trimmed = prev.trimEnd()
+                return trimmed ? `${trimmed}\n\n${continued}` : continued
+              })
+            }}
+          />
+
+          {audioOpen && (
+            <AudioNarrationBar
+              title={loadedChapter ? `第 ${loadedChapter.seq} 章 ${title || loadedChapter.title}` : title}
+              text={body}
+              onClose={() => setAudioOpen(false)}
+            />
+          )}
         </form>
       )}
     </div>

@@ -4,15 +4,19 @@ import type {
   AuditReport,
   BibleEntry,
   BibleEntrySummary,
+  BranchSimulateResponse,
   CardSummary,
   Chapter,
   ChapterSummary,
+  ContinuityAuditResponse,
   GraphData,
   GraphEdge,
   GraphNode,
   Job,
   LLMKey,
   Me,
+  OutlineChapterItem,
+  OutlineResponse,
   ParentRef,
   Project,
   SampleChapter,
@@ -351,5 +355,79 @@ export const api = {
     request<GraphData>(`/api/projects/${projectId}/graph/extract`, {
       method: 'POST',
     }),
+
+  generateOutline: (
+    projectId: string,
+    params: {
+      premise: string
+      genre?: string
+      target_chapters?: number
+      volume_count?: number
+      model?: string
+      card_id?: string
+    },
+  ) =>
+    request<OutlineResponse>(`/api/projects/${projectId}/outline/generate`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  importOutline: (
+    projectId: string,
+    params: {
+      chapters: OutlineChapterItem[]
+      replace_existing?: boolean
+      card_id?: string
+    },
+  ) =>
+    request<{ ok: boolean; inserted_count: number }>(`/api/projects/${projectId}/outline/import`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  branchSimulate: (chapterId: string, currentText: string, model?: string) =>
+    request<BranchSimulateResponse>(`/api/chapters/${chapterId}/branch-simulate`, {
+      method: 'POST',
+      body: JSON.stringify({ current_text: currentText, model }),
+    }),
+
+  continueChapter: (
+    chapterId: string,
+    params: {
+      current_text: string
+      instruction: string
+      target_runes?: number
+      model?: string
+    },
+  ) =>
+    request<{ ok: boolean; continued_text: string }>(`/api/chapters/${chapterId}/continue`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
+
+  continuityAudit: (projectId: string, model?: string) =>
+    request<ContinuityAuditResponse>(`/api/projects/${projectId}/continuity-audit`, {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
+
+  downloadNovel: async (projectId: string, format: 'txt' | 'md' = 'txt') => {
+    const res = await fetch(`/api/projects/${projectId}/export?format=${format}`, {
+      credentials: 'same-origin',
+    })
+    if (!res.ok) {
+      throw new APIError(res.status, 'download_failed', `导出失败 (${res.status})`)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `novel.${format}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
 }
+
 

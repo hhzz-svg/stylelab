@@ -275,3 +275,52 @@ export type GraphData = {
   edges: GraphEdge[]
 }
 
+export interface OutlineChapterItem {
+  title: string
+  brief: string
+  hook?: string
+}
+
+export interface OutlineVolumeItem {
+  volume_index: number
+  volume_title: string
+  volume_brief: string
+  chapters: OutlineChapterItem[]
+}
+
+export interface OutlineResponse {
+  synopsis: string
+  volumes: OutlineVolumeItem[]
+}
+
+export interface PlotBranch {
+  id: string
+  type: string
+  title: string
+  direction: string
+  plot_points: string[]
+  sample_opening: string
+}
+
+export interface BranchSimulateResponse {
+  current_analysis: string
+  branches: PlotBranch[]
+}
+
+export interface ContinuityIssue {
+  severity: 'critical' | 'warning' | 'info'
+  category: 'realm' | 'character' | 'foreshadow' | 'artifact'
+  title: string
+  description: string
+  suggestion: string
+  location: string
+}
+
+export interface ContinuityAuditResponse {
+  score: number
+  overall: string
+  issues: ContinuityIssue[]
+  foreshadows: string[]
+}
+
+

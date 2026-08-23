@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { BookOpenText, Download, FileText, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { BookOpenText, Download, FileText, Plus, ShieldAlert, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { APIError, api, notify } from '../api'
 import { confirm } from '../components/ConfirmDialog'
+import ContinuityRadarModal from '../components/ContinuityRadarModal'
 import Crumb from '../components/Crumb'
 import JobProgress from '../components/JobProgress'
+import OutlinePlannerModal from '../components/OutlinePlannerModal'
 import Skeleton from '../components/Skeleton'
 import { usePageTitle } from '../hooks'
 import { registerJob } from '../jobs'
@@ -35,6 +37,9 @@ export default function Write() {
   const [jobId, setJobId] = useState('')
   const [jobActive, setJobActive] = useState(false)
   const [writingId, setWritingId] = useState('')
+  const [outlineOpen, setOutlineOpen] = useState(false)
+  const [radarOpen, setRadarOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   function onJobStatus(status: JobStatus) {
     setJobActive(status === 'queued' || status === 'running')
@@ -145,15 +150,6 @@ export default function Write() {
     }
   }
 
-  async function onExport() {
-    try {
-      await api.downloadManuscript(projectId)
-      notify('已导出 manuscript.md 全书文稿', 'success')
-    } catch (err) {
-      notify(err instanceof APIError ? err.message : '导出失败', 'error')
-    }
-  }
-
   const list = chapters ?? []
   const written = list.filter((c) => c.status === 'written').length
   const totalRunes = list.reduce((sum, c) => sum + (c.rune_count || 0), 0)
@@ -183,15 +179,93 @@ export default function Write() {
             <strong>{totalRunes.toLocaleString()}</strong>
           </div>
           <button
+            className="btn"
+            type="button"
+            onClick={() => setOutlineOpen(true)}
+            title="输入故事梗概，AI 自动生成分卷与章节细纲"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+          >
+            <Wand2 size={16} />
+            智能大纲规划
+          </button>
+          <button
             className="btn secondary"
             type="button"
-            onClick={() => void onExport()}
+            onClick={() => setRadarOpen(true)}
             disabled={list.length === 0}
-            title="导出整部小说 Markdown 格式文稿"
+            title="扫描全书已写章节与设定集，检测战力崩塌与遗忘伏笔"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
           >
-            <Download size={16} />
-            导出文稿
+            <ShieldAlert size={16} color="#f87171" />
+            伏笔逻辑雷达
           </button>
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <button
+              className="btn secondary"
+              type="button"
+              onClick={() => setExportOpen((v) => !v)}
+              disabled={list.length === 0}
+              title="导出整部小说文稿"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              <Download size={16} />
+              导出全书 ▾
+            </button>
+            {exportOpen ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '6px',
+                  background: 'rgba(15, 20, 32, 0.98)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  boxShadow: '0 12px 30px rgba(0, 0, 0, 0.6)',
+                  zIndex: 200,
+                  minWidth: '180px',
+                  padding: '0.4rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.2rem',
+                }}
+              >
+                <button
+                  className="btn ghost sm"
+                  style={{ justifyContent: 'flex-start', textAlign: 'left', color: '#fff' }}
+                  type="button"
+                  onClick={async () => {
+                    setExportOpen(false)
+                    try {
+                      await api.downloadNovel(projectId, 'txt')
+                      notify('已导出标准 TXT 网文格式文稿！', 'success')
+                    } catch (err) {
+                      notify(err instanceof APIError ? err.message : '导出失败', 'error')
+                    }
+                  }}
+                >
+                  📄 标准 TXT 格式 (网文排版)
+                </button>
+                <button
+                  className="btn ghost sm"
+                  style={{ justifyContent: 'flex-start', textAlign: 'left', color: '#fff' }}
+                  type="button"
+                  onClick={async () => {
+                    setExportOpen(false)
+                    try {
+                      await api.downloadNovel(projectId, 'md')
+                      notify('已导出 Markdown 格式全书文稿！', 'success')
+                    } catch (err) {
+                      notify(err instanceof APIError ? err.message : '导出失败', 'error')
+                    }
+                  }}
+                >
+                  📝 Markdown 文稿 (带目录)
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -326,6 +400,20 @@ export default function Write() {
       )}
 
       {jobId ? <JobProgress jobId={jobId} projectId={projectId} onStatus={onJobStatus} /> : null}
+
+      <OutlinePlannerModal
+        projectId={projectId}
+        cards={cards}
+        isOpen={outlineOpen}
+        onClose={() => setOutlineOpen(false)}
+        onImportSuccess={() => void load()}
+      />
+
+      <ContinuityRadarModal
+        projectId={projectId}
+        isOpen={radarOpen}
+        onClose={() => setRadarOpen(false)}
+      />
     </div>
   )
 }

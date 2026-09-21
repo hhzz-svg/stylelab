@@ -284,16 +284,16 @@ func insertChapter(t *testing.T, st *store.Store, projectID, cardID string, seq 
 	t.Helper()
 	now := time.Now().UTC().Format(time.RFC3339)
 	ch := write.Chapter{
-		ID:        ids.New(write.Prefix),
-		ProjectID: projectID,
-		CardID:    cardID,
-		Seq:       seq,
-		Title:     title,
-		Brief:     brief,
-		Status:    write.StatusDraft,
+		ID:          ids.New(write.Prefix),
+		ProjectID:   projectID,
+		CardID:      cardID,
+		Seq:         seq,
+		Title:       title,
+		Brief:       brief,
+		Status:      write.StatusDraft,
 		TargetRunes: 2500,
-		CreatedAt: now,
-		UpdatedAt: now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	if err := write.Insert(context.Background(), st, ch); err != nil {
 		t.Fatal(err)

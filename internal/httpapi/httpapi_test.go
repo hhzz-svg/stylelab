@@ -1820,44 +1820,44 @@ func TestSessionCookieFlags(t *testing.T) {
 	if cookie.MaxAge != 14*24*60*60 {
 		t.Fatalf("MaxAge: %d", cookie.MaxAge)
 	}
-		if cookie.Secure {
-			t.Fatal("Secure should be false without TLS")
-		}
-		if len(cookie.Value) != 64 {
-			t.Fatalf("cookie value length: %d", len(cookie.Value))
-		}
+	if cookie.Secure {
+		t.Fatal("Secure should be false without TLS")
 	}
+	if len(cookie.Value) != 64 {
+		t.Fatalf("cookie value length: %d", len(cookie.Value))
+	}
+}
 
-	func TestSessionCookieSecureBehindHTTPSProxy(t *testing.T) {
-		srv := newTestServer(t)
-		req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/auth/register", strings.NewReader(`{"email":"proxy-flags@example.com","password":"password1"}`))
-		if err != nil {
-			t.Fatalf("NewRequest: %v", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Forwarded-Proto", "https")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("Do: %v", err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusCreated {
-			t.Fatalf("register: %d", resp.StatusCode)
-		}
-		var cookie *http.Cookie
-		for _, c := range resp.Cookies() {
-			if c.Name == "stylelab_session" {
-				cookie = c
-				break
-			}
-		}
-		if cookie == nil {
-			t.Fatal("missing stylelab_session")
-		}
-		if !cookie.Secure {
-			t.Fatal("Secure should be true behind an HTTPS proxy")
+func TestSessionCookieSecureBehindHTTPSProxy(t *testing.T) {
+	srv := newTestServer(t)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/auth/register", strings.NewReader(`{"email":"proxy-flags@example.com","password":"password1"}`))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("register: %d", resp.StatusCode)
+	}
+	var cookie *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "stylelab_session" {
+			cookie = c
+			break
 		}
 	}
+	if cookie == nil {
+		t.Fatal("missing stylelab_session")
+	}
+	if !cookie.Secure {
+		t.Fatal("Secure should be true behind an HTTPS proxy")
+	}
+}
 
 func hasSessionCookie(resp *http.Response) bool {
 	for _, c := range resp.Cookies() {

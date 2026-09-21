@@ -584,4 +584,3 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, resCard)
 }
-

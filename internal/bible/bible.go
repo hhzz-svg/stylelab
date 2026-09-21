@@ -19,8 +19,8 @@ const (
 	Prefix = "bib_"
 
 	KindCharacter = "character"
-	KindSetting    = "setting"
-	KindThread     = "thread"
+	KindSetting   = "setting"
+	KindThread    = "thread"
 
 	StatusActive   = "active"
 	StatusResolved = "resolved"
@@ -56,14 +56,14 @@ type Entry struct {
 }
 
 type EntrySummary struct {
-	ID              string `json:"id"`
-	Kind            string `json:"kind"`
-	Name            string `json:"name"`
-	Status          string `json:"status"`
-	Origin          string `json:"origin"`
-	SourceSeq       int    `json:"source_seq"`
-	ContentPreview  string `json:"content_preview"`
-	UpdatedAt       string `json:"updated_at"`
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	Status         string `json:"status"`
+	Origin         string `json:"origin"`
+	SourceSeq      int    `json:"source_seq"`
+	ContentPreview string `json:"content_preview"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 // Op 是设定集的一次 AI 维护操作。AI 只能新增或更新，不能删除。
@@ -291,11 +291,11 @@ func SyncChapter(ctx context.Context, client *llm.Client, key Key, model string,
 		model = defaultSyncModel
 	}
 	req := llm.Request{
-		Provider: key.Provider,
-		BaseURL:  key.BaseURL,
-		APIKey:   key.APIKey,
-		Model:    model,
-		Temp:     syncChatTemp,
+		Provider:  key.Provider,
+		BaseURL:   key.BaseURL,
+		APIKey:    key.APIKey,
+		Model:     model,
+		Temp:      syncChatTemp,
 		MaxTokens: syncMaxTokens,
 		Messages: []llm.Message{
 			{Role: "system", Content: llm.BibleSyncSystem()},

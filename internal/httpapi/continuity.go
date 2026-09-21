@@ -1,4 +1,4 @@
-﻿package httpapi
+package httpapi
 
 import (
 	"context"
@@ -14,19 +14,19 @@ import (
 )
 
 type continuityAuditItem struct {
-	Severity    string `json:"severity"`    // critical | warning | info
-	Category    string `json:"category"`    // realm (战力境界) | character (人物人设) | foreshadow (伏笔悬念) | artifact (物品法宝)
+	Severity    string `json:"severity"` // critical | warning | info
+	Category    string `json:"category"` // realm (战力境界) | character (人物人设) | foreshadow (伏笔悬念) | artifact (物品法宝)
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Suggestion  string `json:"suggestion"`
-	Location    string `json:"location"`    // e.g. "第3章 vs 第7章" 或 "世界设定: 灵石体系"
+	Location    string `json:"location"` // e.g. "第3章 vs 第7章" 或 "世界设定: 灵石体系"
 }
 
 type continuityAuditResponse struct {
-	Score       int                   `json:"score"`        // 0 - 100
-	Overall     string                `json:"overall"`      // 总体评价
+	Score       int                   `json:"score"`   // 0 - 100
+	Overall     string                `json:"overall"` // 总体评价
 	Issues      []continuityAuditItem `json:"issues"`
-	Foreshadows []string              `json:"foreshadows"`  // 已埋下待收回的重要伏笔清单
+	Foreshadows []string              `json:"foreshadows"` // 已埋下待收回的重要伏笔清单
 }
 
 func (s *Server) handleContinuityAudit(w http.ResponseWriter, r *http.Request) {

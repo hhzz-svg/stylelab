@@ -29,6 +29,18 @@ type continuityAuditResponse struct {
 	Foreshadows []string              `json:"foreshadows"` // 已埋下待收回的重要伏笔清单
 }
 
+// Context bounds for the continuity audit. The prompt is assembled from every
+// chapter in the project, so on a long manuscript an unbounded build overruns
+// the model's context window and the reply comes back as truncated JSON that
+// fails to parse. Raising MaxTokens does not help: that caps the completion,
+// not the prompt.
+const (
+	auditChapterLimit = 60
+	auditChapterRunes = 180
+	auditBibleLimit   = 40
+	auditBibleRunes   = 200
+)
+
 func (s *Server) handleContinuityAudit(w http.ResponseWriter, r *http.Request) {
 	userID, err := s.currentUserID(r)
 	if err != nil {
@@ -52,23 +64,36 @@ func (s *Server) handleContinuityAudit(w http.ResponseWriter, r *http.Request) {
 
 	// 1. 获取所有章节目录与摘要
 	var chapterList []string
+	var totalChapters int
 	rows, err := s.st.DB().QueryContext(r.Context(),
 		`SELECT seq, title, brief, summary, status FROM chapters WHERE project_id = ? ORDER BY seq ASC`,
 		projectID,
 	)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var seq int
-			var title, brief, summary, status string
-			if err := rows.Scan(&seq, &title, &brief, &summary, &status); err == nil {
-				content := summary
-				if content == "" {
-					content = brief
-				}
-				chapterList = append(chapterList, fmt.Sprintf("【第%d章 %s】(状态:%s)\n梗概与摘要：%s", seq, title, status, content))
-			}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int
+		var title, brief, summary, status string
+		if err := rows.Scan(&seq, &title, &brief, &summary, &status); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
 		}
+		totalChapters++
+		if len(chapterList) >= auditChapterLimit {
+			continue
+		}
+		content := summary
+		if content == "" {
+			content = brief
+		}
+		chapterList = append(chapterList, fmt.Sprintf("【第%d章 %s】(状态:%s)\n梗概与摘要：%s", seq, title, status, headRunes(content, auditChapterRunes)))
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
 	}
 
 	if len(chapterList) == 0 {
@@ -79,17 +104,25 @@ func (s *Server) handleContinuityAudit(w http.ResponseWriter, r *http.Request) {
 	// 2. 获取世界观与人物设定
 	var bibleList []string
 	bRows, err := s.st.DB().QueryContext(r.Context(),
-		`SELECT kind, name, content FROM bible_entries WHERE project_id = ? AND status = 'active'`,
-		projectID,
+		`SELECT kind, name, content FROM bible_entries WHERE project_id = ? AND status = 'active' LIMIT ?`,
+		projectID, auditBibleLimit,
 	)
-	if err == nil {
-		defer bRows.Close()
-		for bRows.Next() {
-			var k, n, c string
-			if err := bRows.Scan(&k, &n, &c); err == nil {
-				bibleList = append(bibleList, fmt.Sprintf("[%s] %s: %s", k, n, c))
-			}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	defer bRows.Close()
+	for bRows.Next() {
+		var k, n, c string
+		if err := bRows.Scan(&k, &n, &c); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
 		}
+		bibleList = append(bibleList, fmt.Sprintf("[%s] %s: %s", k, n, headRunes(c, auditBibleRunes)))
+	}
+	if err := bRows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
 	}
 
 	key, err := s.loadUserLLMKey(r.Context(), userID)
@@ -121,15 +154,19 @@ func (s *Server) handleContinuityAudit(w http.ResponseWriter, r *http.Request) {
   ]
 }`
 
-	userPrompt := fmt.Sprintf("【全书章节大纲与内容摘要】\n%s\n\n【世界设定与人物档案】\n%s",
-		strings.Join(chapterList, "\n\n"), strings.Join(bibleList, "\n"),
+	scopeNote := ""
+	if totalChapters > len(chapterList) {
+		scopeNote = fmt.Sprintf("\n\n（注：全书共 %d 章，因篇幅所限本次仅审计前 %d 章。）", totalChapters, len(chapterList))
+	}
+	userPrompt := fmt.Sprintf("【全书章节大纲与内容摘要】\n%s\n\n【世界设定与人物档案】\n%s%s",
+		strings.Join(chapterList, "\n\n"), strings.Join(bibleList, "\n"), scopeNote,
 	)
 
 	llmReq := llm.Request{
 		Provider:  key.provider,
 		BaseURL:   key.baseURL,
 		APIKey:    key.apiKey,
-		Model:     req.Model,
+		Model:     resolveModel(req.Model),
 		Temp:      0.4,
 		MaxTokens: 3500,
 		Messages: []llm.Message{

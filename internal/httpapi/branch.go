@@ -39,6 +39,16 @@ type chapterContinueRequest struct {
 	Model       string `json:"model"`
 }
 
+// Context bounds for the branch handlers. The prompts below are assembled from
+// the whole manuscript, so without these caps a long project overruns the
+// model's context window and the reply comes back as truncated JSON. Mirrors
+// write.prevSummaryLimit / write.prevTailRunes.
+const (
+	branchPrevSummaryLimit = 3
+	branchTailRunes        = 1200
+	continueInstructionMax = 500
+)
+
 func (s *Server) handleBranchSimulate(w http.ResponseWriter, r *http.Request) {
 	userID, err := s.currentUserID(r)
 	if err != nil {
@@ -48,16 +58,15 @@ func (s *Server) handleBranchSimulate(w http.ResponseWriter, r *http.Request) {
 	chapterID := r.PathValue("id")
 	var projectID string
 	var seq int
-	var title, brief, body, cardID string
-	var cardVersion int
+	var title, brief, body, chModel string
 	err = s.st.DB().QueryRowContext(
 		r.Context(),
-		`SELECT c.project_id, c.seq, c.title, c.brief, c.body, c.card_id, c.card_version 
+		`SELECT c.project_id, c.seq, c.title, c.brief, c.body, c.model
 		 FROM chapters c
 		 JOIN projects p ON p.id = c.project_id
 		 WHERE c.id = ? AND p.user_id = ?`,
 		chapterID, userID,
-	).Scan(&projectID, &seq, &title, &brief, &body, &cardID, &cardVersion)
+	).Scan(&projectID, &seq, &title, &brief, &body, &chModel)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "chapter not found")
@@ -77,22 +86,40 @@ func (s *Server) handleBranchSimulate(w http.ResponseWriter, r *http.Request) {
 	if activeText == "" {
 		activeText = strings.TrimSpace(body)
 	}
+	// Only the tail matters for deciding where the plot goes next, and the
+	// client posts its entire editor buffer.
+	activeText = tailRunes(activeText, branchTailRunes)
 
 	// 收集前文摘要
 	var prevSummaries []string
 	rows, err := s.st.DB().QueryContext(r.Context(),
-		`SELECT seq, title, summary FROM chapters WHERE project_id = ? AND seq < ? ORDER BY seq ASC`,
-		projectID, seq,
+		`SELECT seq, title, summary FROM chapters
+		 WHERE project_id = ? AND seq < ? AND TRIM(summary) <> ''
+		 ORDER BY seq DESC LIMIT ?`,
+		projectID, seq, branchPrevSummaryLimit,
 	)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var sSeq int
-			var sTitle, sSummary string
-			if err := rows.Scan(&sSeq, &sTitle, &sSummary); err == nil && sSummary != "" {
-				prevSummaries = append(prevSummaries, fmt.Sprintf("第%d章《%s》：%s", sSeq, sTitle, sSummary))
-			}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sSeq int
+		var sTitle, sSummary string
+		if err := rows.Scan(&sSeq, &sTitle, &sSummary); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal error")
+			return
 		}
+		prevSummaries = append(prevSummaries, fmt.Sprintf("第%d章《%s》：%s", sSeq, sTitle, sSummary))
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "internal error")
+		return
+	}
+	// The query walks backwards to take the most recent summaries; the prompt
+	// wants them in reading order.
+	for i, j := 0, len(prevSummaries)-1; i < j; i, j = i+1, j-1 {
+		prevSummaries[i], prevSummaries[j] = prevSummaries[j], prevSummaries[i]
 	}
 
 	key, err := s.loadUserLLMKey(r.Context(), userID)
@@ -148,7 +175,7 @@ func (s *Server) handleBranchSimulate(w http.ResponseWriter, r *http.Request) {
 		Provider:  key.provider,
 		BaseURL:   key.baseURL,
 		APIKey:    key.apiKey,
-		Model:     req.Model,
+		Model:     resolveModel(req.Model, chModel),
 		Temp:      0.75,
 		MaxTokens: 3000,
 		Messages: []llm.Message{
@@ -185,16 +212,15 @@ func (s *Server) handleChapterContinue(w http.ResponseWriter, r *http.Request) {
 	chapterID := r.PathValue("id")
 	var projectID string
 	var seq int
-	var title, brief, cardID string
-	var cardVersion int
+	var title, brief, chModel string
 	err = s.st.DB().QueryRowContext(
 		r.Context(),
-		`SELECT c.project_id, c.seq, c.title, c.brief, c.card_id, c.card_version 
+		`SELECT c.project_id, c.seq, c.title, c.brief, c.model
 		 FROM chapters c
 		 JOIN projects p ON p.id = c.project_id
 		 WHERE c.id = ? AND p.user_id = ?`,
 		chapterID, userID,
-	).Scan(&projectID, &seq, &title, &brief, &cardID, &cardVersion)
+	).Scan(&projectID, &seq, &title, &brief, &chModel)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "chapter not found")
@@ -213,6 +239,10 @@ func (s *Server) handleChapterContinue(w http.ResponseWriter, r *http.Request) {
 	if req.TargetRunes <= 0 || req.TargetRunes > 3000 {
 		req.TargetRunes = 600
 	}
+	// The client posts its whole editor buffer; only the tail is needed to
+	// continue from, and a runaway instruction should not crowd out the text.
+	req.CurrentText = tailRunes(strings.TrimSpace(req.CurrentText), branchTailRunes)
+	req.Instruction = headRunes(strings.TrimSpace(req.Instruction), continueInstructionMax)
 
 	key, err := s.loadUserLLMKey(r.Context(), userID)
 	if err != nil {
@@ -235,7 +265,7 @@ func (s *Server) handleChapterContinue(w http.ResponseWriter, r *http.Request) {
 		Provider:  key.provider,
 		BaseURL:   key.baseURL,
 		APIKey:    key.apiKey,
-		Model:     req.Model,
+		Model:     resolveModel(req.Model, chModel),
 		Temp:      0.7,
 		MaxTokens: 2048,
 		Messages: []llm.Message{

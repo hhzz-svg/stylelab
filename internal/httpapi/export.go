@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"stylelab/internal/write"
 )
 
 type exportNovelChapter struct {
@@ -64,14 +66,22 @@ func (s *Server) handleExportNovelMulti(w http.ResponseWriter, r *http.Request) 
 
 	for rows.Next() {
 		var c exportNovelChapter
-		if err := rows.Scan(&c.Seq, &c.Title, &c.Brief, &c.Body, &c.Summary, &c.Status); err == nil {
-			c.RuneCount = utf8.RuneCountInString(c.Body)
-			totalRunes += c.RuneCount
-			if c.Status == "written" {
-				writtenCount++
-			}
-			chapters = append(chapters, c)
+		// A dropped row here would silently ship a novel with a chapter
+		// missing, under HTTP 200. Fail the export instead.
+		if err := rows.Scan(&c.Seq, &c.Title, &c.Brief, &c.Body, &c.Summary, &c.Status); err != nil {
+			writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+			return
 		}
+		c.RuneCount = utf8.RuneCountInString(c.Body)
+		totalRunes += c.RuneCount
+		if c.Status == write.StatusWritten {
+			writtenCount++
+		}
+		chapters = append(chapters, c)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
 	}
 
 	switch format {
@@ -112,7 +122,7 @@ func (s *Server) handleExportNovelMulti(w http.ResponseWriter, r *http.Request) 
 		}
 
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.md\"", projectName))
+		w.Header().Set("Content-Disposition", contentDispositionAttachment(projectName+".md"))
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(sb.String()))
 		return
@@ -141,7 +151,7 @@ func (s *Server) handleExportNovelMulti(w http.ResponseWriter, r *http.Request) 
 		}
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.txt\"", projectName))
+		w.Header().Set("Content-Disposition", contentDispositionAttachment(projectName+".txt"))
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(sb.String()))
 		return

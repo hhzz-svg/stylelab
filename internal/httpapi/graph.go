@@ -424,12 +424,11 @@ func (s *Server) handleExtractGraph(w http.ResponseWriter, r *http.Request) {
   ]
 }`
 
-	client := &llm.Client{}
-	outText, err := client.Chat(r.Context(), llm.Request{
+	outText, err := s.llm.Chat(r.Context(), llm.Request{
 		Provider: key.provider,
 		BaseURL:  key.baseURL,
 		APIKey:   key.apiKey,
-		Model:    "",
+		Model:    resolveModel(""),
 		Temp:     0.2,
 		Messages: []llm.Message{
 			{Role: "system", Content: systemPrompt},

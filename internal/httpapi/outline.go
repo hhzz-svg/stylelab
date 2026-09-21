@@ -15,6 +15,13 @@ import (
 	"stylelab/internal/write"
 )
 
+// Outline sizing caps. maxOutlineBriefRunes matches write.maxBriefRunes, which
+// is what handleWriteChapter later validates an imported brief against.
+const (
+	maxOutlineChapters   = 100
+	maxOutlineBriefRunes = 200
+)
+
 type generateOutlineRequest struct {
 	Premise        string `json:"premise"`
 	Genre          string `json:"genre"`
@@ -75,7 +82,7 @@ func (s *Server) handleGenerateOutline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid", "故事核心梗概 (premise) 不能为空")
 		return
 	}
-	if req.TargetChapters <= 0 || req.TargetChapters > 100 {
+	if req.TargetChapters <= 0 || req.TargetChapters > maxOutlineChapters {
 		req.TargetChapters = 15
 	}
 	if req.VolumeCount <= 0 {
@@ -145,7 +152,7 @@ func (s *Server) handleGenerateOutline(w http.ResponseWriter, r *http.Request) {
 		Provider:  key.provider,
 		BaseURL:   key.baseURL,
 		APIKey:    key.apiKey,
-		Model:     req.Model,
+		Model:     resolveModel(req.Model),
 		Temp:      0.7,
 		MaxTokens: 4096,
 		Messages: []llm.Message{
@@ -198,14 +205,49 @@ func (s *Server) handleImportOutline(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid", "chapters list is empty")
 		return
 	}
+	if len(req.Chapters) > maxOutlineChapters {
+		writeError(w, http.StatusBadRequest, "invalid", fmt.Sprintf("一次最多导入 %d 章", maxOutlineChapters))
+		return
+	}
 
 	cardID := strings.TrimSpace(req.CardID)
 	cardVersion := 0
 	if cardID != "" {
 		c, err := s.loadOwnedCard(r, userID, cardID, 0)
-		if err == nil {
-			cardVersion = c.Version
+		if err != nil {
+			writeCardError(w, err)
+			return
 		}
+		if c.ProjectID != projectID {
+			writeError(w, http.StatusNotFound, "not_found", "not found")
+			return
+		}
+		cardID = c.ID
+		cardVersion = c.Version
+	}
+
+	// Validate every chapter before opening the transaction so a bad item
+	// cannot leave a half-imported outline behind. An empty brief matters:
+	// handleWriteChapter rejects one, so such a chapter could never be written.
+	type preparedChapter struct{ title, brief string }
+	prepared := make([]preparedChapter, 0, len(req.Chapters))
+	for i, ch := range req.Chapters {
+		title, err := write.ValidateTitle(ch.Title)
+		if err != nil {
+			title = fmt.Sprintf("第%d章", i+1)
+		}
+		brief := strings.TrimSpace(ch.Brief)
+		if hook := strings.TrimSpace(ch.Hook); hook != "" && !strings.Contains(brief, hook) {
+			brief = strings.TrimSpace(brief + " (伏笔: " + hook + ")")
+		}
+		// Clamp before validating: an over-long brief from the model is worth
+		// truncating, but an empty one is a hard error.
+		brief, err = write.ValidateBrief(headRunes(brief, maxOutlineBriefRunes))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid", fmt.Sprintf("第 %d 章缺少章节梗概", i+1))
+			return
+		}
+		prepared = append(prepared, preparedChapter{title: title, brief: brief})
 	}
 
 	tx, err := s.st.DB().BeginTx(r.Context(), nil)
@@ -215,43 +257,49 @@ func (s *Server) handleImportOutline(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	startSeq := 1
+	// "Replace" must never discard finished work: drop only chapters that carry
+	// no prose. Surviving chapters keep their seq, so the import appends after
+	// them -- chapters has UNIQUE (project_id, seq), so renumbering around them
+	// is not an option.
+	protectedCount := 0
 	if req.ReplaceExisting {
-		if _, err := tx.ExecContext(r.Context(), `DELETE FROM chapters WHERE project_id = ?`, projectID); err != nil {
+		if err := tx.QueryRowContext(r.Context(),
+			`SELECT COUNT(*) FROM chapters WHERE project_id = ? AND (status = ? OR TRIM(body) <> '')`,
+			projectID, write.StatusWritten,
+		).Scan(&protectedCount); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
-	} else {
-		var maxSeq sql.NullInt64
-		_ = tx.QueryRowContext(r.Context(), `SELECT MAX(seq) FROM chapters WHERE project_id = ?`, projectID).Scan(&maxSeq)
-		if maxSeq.Valid {
-			startSeq = int(maxSeq.Int64) + 1
+		if _, err := tx.ExecContext(r.Context(),
+			`DELETE FROM chapters WHERE project_id = ? AND status <> ? AND TRIM(body) = ''`,
+			projectID, write.StatusWritten,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
 		}
+	}
+
+	startSeq := 1
+	var maxSeq sql.NullInt64
+	if err := tx.QueryRowContext(r.Context(), `SELECT MAX(seq) FROM chapters WHERE project_id = ?`, projectID).Scan(&maxSeq); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if maxSeq.Valid {
+		startSeq = int(maxSeq.Int64) + 1
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	insertedCount := 0
 
-	for i, ch := range req.Chapters {
+	for i, ch := range prepared {
 		seq := startSeq + i
-		title, err := write.ValidateTitle(ch.Title)
-		if err != nil {
-			title = fmt.Sprintf("第%d章", seq)
-		}
-		brief := strings.TrimSpace(ch.Brief)
-		if ch.Hook != "" && !strings.Contains(brief, ch.Hook) {
-			brief = brief + " (伏笔: " + ch.Hook + ")"
-		}
-		if len([]rune(brief)) > 200 {
-			brief = string([]rune(brief)[:200])
-		}
-
-		chapterID := ids.New("ch_")
-		_, err = tx.ExecContext(
+		chapterID := ids.New(write.Prefix)
+		_, err := tx.ExecContext(
 			r.Context(),
 			`INSERT INTO chapters (id, project_id, card_id, card_version, seq, title, brief, body, summary, status, target_runes, model, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, '', '', 'draft', 3000, '', ?, ?)`,
-			chapterID, projectID, cardID, cardVersion, seq, title, brief, now, now,
+			 VALUES (?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, '', ?, ?)`,
+			chapterID, projectID, cardID, cardVersion, seq, ch.title, ch.brief, write.StatusDraft, write.ClampTarget(0), now, now,
 		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", fmt.Sprintf("插入第 %d 章失败: %v", seq, err))
@@ -266,7 +314,8 @@ func (s *Server) handleImportOutline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":             true,
-		"inserted_count": insertedCount,
+		"ok":              true,
+		"inserted_count":  insertedCount,
+		"protected_count": protectedCount,
 	})
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { GitFork, Loader2, Sparkles, Wand2, X } from 'lucide-react'
-import { api, APIError, notify } from '../api'
+import { api, errMessage, notify } from '../api'
 import type { BranchSimulateResponse, PlotBranch } from '../types'
 
 interface BranchSimulationDrawerProps {
@@ -38,7 +38,7 @@ export default function BranchSimulationDrawer({
       }
       notify('AI 剧情推演已生成 3 种破局走向！', 'success')
     } catch (err) {
-      setError(err instanceof APIError ? err.message : '推演失败')
+      setError(errMessage(err, '推演失败'))
     } finally {
       setLoading(false)
     }
@@ -59,7 +59,7 @@ export default function BranchSimulationDrawer({
         onClose()
       }
     } catch (err) {
-      setError(err instanceof APIError ? err.message : '续写失败')
+      setError(errMessage(err, '续写失败'))
     } finally {
       setContinuing(false)
     }
@@ -76,9 +76,9 @@ export default function BranchSimulationDrawer({
         maxWidth: '92vw',
         background: 'rgba(10, 14, 22, 0.98)',
         backdropFilter: 'blur(16px)',
-        borderLeft: '1px solid var(--border)',
+        borderLeft: '1px solid var(--line)',
         boxShadow: '-12px 0 40px rgba(0, 0, 0, 0.7)',
-        zIndex: 1050,
+        zIndex: 100,
         display: 'flex',
         flexDirection: 'column',
         animation: 'slideInRight 0.25s ease-out',
@@ -88,7 +88,7 @@ export default function BranchSimulationDrawer({
       <div
         style={{
           padding: '1.2rem',
-          borderBottom: '1px solid var(--border)',
+          borderBottom: '1px solid var(--line)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -151,7 +151,7 @@ export default function BranchSimulationDrawer({
                   border: '1px solid rgba(212, 175, 55, 0.2)',
                   fontSize: '0.84rem',
                   lineHeight: 1.5,
-                  color: 'var(--text)',
+                  color: 'var(--ink)',
                 }}
               >
                 💡 <strong>当前困局简析：</strong>{data.current_analysis}
@@ -192,9 +192,25 @@ export default function BranchSimulationDrawer({
                       <strong style={{ fontSize: '0.92rem', color: '#fff' }}>{b.title}</strong>
                     </div>
 
-                    <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+                    <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--ink-soft)', lineHeight: 1.5 }}>
                       {b.direction}
                     </p>
+
+                    {b.plot_points && b.plot_points.length > 0 ? (
+                      <ul
+                        style={{
+                          margin: '0 0 0.5rem',
+                          paddingLeft: '1.1rem',
+                          fontSize: '0.82rem',
+                          color: 'var(--ink-soft)',
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        {b.plot_points.map((point, idx) => (
+                          <li key={idx}>{point}</li>
+                        ))}
+                      </ul>
+                    ) : null}
 
                     {b.sample_opening ? (
                       <div
@@ -223,7 +239,7 @@ export default function BranchSimulationDrawer({
                   padding: '1rem',
                   background: 'rgba(0, 0, 0, 0.4)',
                   borderRadius: '8px',
-                  border: '1px solid var(--border)',
+                  border: '1px solid var(--line)',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>

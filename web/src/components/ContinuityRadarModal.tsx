@@ -1,7 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CheckCircle2, Loader2, RefreshCw, ShieldAlert, X } from 'lucide-react'
-import { api, APIError, notify } from '../api'
+import { api, errMessage, notify } from '../api'
 import type { ContinuityAuditResponse } from '../types'
+
+const CATEGORY_LABEL: Record<string, string> = {
+  realm: '战力境界',
+  character: '人物人设',
+  foreshadow: '伏笔悬念',
+  artifact: '物品法宝',
+}
 
 interface ContinuityRadarModalProps {
   projectId: string
@@ -14,16 +21,22 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
   const [report, setReport] = useState<ContinuityAuditResponse | null>(null)
   const [error, setError] = useState('')
   const [filterSeverity, setFilterSeverity] = useState<string>('all')
+  const [filterCategory, setFilterCategory] = useState<string>('all')
+  // React 18 StrictMode double-invokes effects in development; without this
+  // guard every open fired two concurrent audits against the user's API key.
+  const inFlight = useRef(false)
 
   useEffect(() => {
     if (isOpen && !report) {
       void runAudit()
     }
-  }, [isOpen])
+  }, [isOpen, report])
 
   if (!isOpen) return null
 
   async function runAudit() {
+    if (inFlight.current) return
+    inFlight.current = true
     setError('')
     setLoading(true)
     try {
@@ -31,15 +44,20 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
       setReport(res)
       notify('伏笔与战力逻辑雷达扫描完成！', 'success')
     } catch (err) {
-      setError(err instanceof APIError ? err.message : '逻辑雷达扫描失败')
+      setError(errMessage(err, '逻辑雷达扫描失败'))
     } finally {
+      inFlight.current = false
       setLoading(false)
     }
   }
 
   const issues = report?.issues ?? []
-  const filteredIssues =
-    filterSeverity === 'all' ? issues : issues.filter((i) => i.severity === filterSeverity)
+  const filteredIssues = issues.filter(
+    (i) =>
+      (filterSeverity === 'all' || i.severity === filterSeverity) &&
+      (filterCategory === 'all' || i.category === filterCategory),
+  )
+  const presentCategories = Array.from(new Set(issues.map((i) => i.category).filter(Boolean)))
 
   const criticalCount = issues.filter((i) => i.severity === 'critical').length
   const warningCount = issues.filter((i) => i.severity === 'warning').length
@@ -49,13 +67,13 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
   const scoreColor = score >= 85 ? '#4ade80' : score >= 70 ? '#facc15' : '#f87171'
 
   return (
-    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 1100 }}>
+    <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal-panel"
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '820px', width: '92%', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
       >
-        <div className="modal-head" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+        <div className="modal-head" style={{ borderBottom: '1px solid var(--line)', paddingBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <div
               style={{
@@ -103,7 +121,7 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
                   padding: '1.2rem',
                   background: 'rgba(15, 20, 30, 0.85)',
                   borderRadius: '10px',
-                  border: '1px solid var(--border)',
+                  border: '1px solid var(--line)',
                   flexWrap: 'wrap',
                 }}
               >
@@ -123,7 +141,7 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
                   <span style={{ fontSize: '1.6rem', fontWeight: 900, color: scoreColor, lineHeight: 1 }}>
                     {score}
                   </span>
-                  <span style={{ fontSize: '0.65rem', color: 'var(--muted)', marginTop: '2px' }}>逻辑指数</span>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--ink-soft)', marginTop: '2px' }}>逻辑指数</span>
                 </div>
 
                 <div style={{ flex: 1, minWidth: '240px' }}>
@@ -139,7 +157,7 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
                       重新扫描
                     </button>
                   </div>
-                  <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+                  <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--ink-soft)', lineHeight: 1.5 }}>
                     {report.overall}
                   </p>
                 </div>
@@ -202,6 +220,32 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
                 ) : null}
               </div>
 
+              {/* Category filter chips -- the backend classifies every issue, so
+                  let the reader narrow by what kind of problem it is. */}
+              {presentCategories.length > 1 ? (
+                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={`btn ${filterCategory === 'all' ? '' : 'secondary'}`}
+                    style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}
+                    onClick={() => setFilterCategory('all')}
+                  >
+                    全部类别
+                  </button>
+                  {presentCategories.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`btn ${filterCategory === cat ? '' : 'secondary'}`}
+                      style={{ padding: '0.35rem 0.8rem', fontSize: '0.82rem' }}
+                      onClick={() => setFilterCategory(cat)}
+                    >
+                      {CATEGORY_LABEL[cat] ?? cat} ({issues.filter((i) => i.category === cat).length})
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
               {/* Issues list */}
               <div className="stack" style={{ gap: '0.8rem' }}>
                 {filteredIssues.length === 0 ? (
@@ -248,16 +292,30 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
                             >
                               {isCrit ? '致命毒点' : isWarn ? '逻辑疑点' : '优化提醒'}
                             </span>
+                            {item.category ? (
+                              <span
+                                style={{
+                                  fontSize: '0.72rem',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  background: 'rgba(255, 255, 255, 0.06)',
+                                  color: 'var(--ink-soft)',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {CATEGORY_LABEL[item.category] ?? item.category}
+                              </span>
+                            ) : null}
                             <strong style={{ color: '#fff', fontSize: '0.95rem' }}>{item.title}</strong>
                           </div>
                           {item.location ? (
-                            <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+                            <span style={{ fontSize: '0.78rem', color: 'var(--ink-soft)' }}>
                               📍 {item.location}
                             </span>
                           ) : null}
                         </div>
 
-                        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: 'var(--text)', lineHeight: 1.5 }}>
+                        <p style={{ margin: '0 0 0.5rem', fontSize: '0.86rem', color: 'var(--ink)', lineHeight: 1.5 }}>
                           {item.description}
                         </p>
 
@@ -294,7 +352,7 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
                   <strong style={{ color: 'var(--gold-hi)', display: 'block', marginBottom: '0.5rem', fontSize: '0.92rem' }}>
                     📌 全书已埋伏笔待回收追踪 ({report.foreshadows.length})
                   </strong>
-                  <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                  <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.85rem', color: 'var(--ink-soft)' }}>
                     {report.foreshadows.map((f, i) => (
                       <li key={i} style={{ marginBottom: '0.3rem', lineHeight: 1.4 }}>
                         {f}

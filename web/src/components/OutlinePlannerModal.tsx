@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ArrowDownToLine, Loader2, Sparkles, Wand2, X } from 'lucide-react'
-import { api, APIError, notify } from '../api'
+import { api, errMessage, notify } from '../api'
 import type { CardSummary, OutlineResponse, OutlineChapterItem } from '../types'
 
 interface OutlinePlannerModalProps {
@@ -58,7 +58,7 @@ export default function OutlinePlannerModal({
       setOutline(res)
       notify('AI 已完成全书分卷与章节细纲架构！', 'success')
     } catch (err) {
-      setError(err instanceof APIError ? err.message : '生成大纲失败')
+      setError(errMessage(err, '生成大纲失败'))
     } finally {
       setLoading(false)
     }
@@ -84,24 +84,29 @@ export default function OutlinePlannerModal({
         replace_existing: replaceExisting,
         card_id: cardId || undefined,
       })
-      notify(`已成功批量导入 ${res.inserted_count} 个章节至目录！`, 'success')
+      notify(
+        res.protected_count > 0
+          ? `已导入 ${res.inserted_count} 个章节，并保留了 ${res.protected_count} 个已写正文的章节。`
+          : `已成功批量导入 ${res.inserted_count} 个章节至目录！`,
+        'success',
+      )
       onImportSuccess()
       onClose()
     } catch (err) {
-      setError(err instanceof APIError ? err.message : '导入章节失败')
+      setError(errMessage(err, '导入章节失败'))
     } finally {
       setImporting(false)
     }
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 1100 }}>
+    <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal-panel"
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '850px', width: '92%', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
       >
-        <div className="modal-head" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+        <div className="modal-head" style={{ borderBottom: '1px solid var(--line)', paddingBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <div
               style={{
@@ -235,7 +240,7 @@ export default function OutlinePlannerModal({
                     className="panel"
                     style={{ background: 'rgba(15, 20, 30, 0.8)', borderColor: 'rgba(255, 255, 255, 0.08)' }}
                   >
-                    <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.6rem', marginBottom: '0.8rem' }}>
+                    <div style={{ borderBottom: '1px solid var(--line)', paddingBottom: '0.6rem', marginBottom: '0.8rem' }}>
                       <h3 style={{ margin: '0 0 0.2rem', color: '#fff', fontSize: '1.05rem' }}>
                         {v.volume_title}
                       </h3>
@@ -275,7 +280,7 @@ export default function OutlinePlannerModal({
                               </span>
                             ) : null}
                           </div>
-                          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+                          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--ink-soft)', lineHeight: 1.5 }}>
                             {c.brief}
                           </p>
                         </div>
@@ -293,7 +298,7 @@ export default function OutlinePlannerModal({
                   flexWrap: 'wrap',
                   gap: '1rem',
                   paddingTop: '1rem',
-                  borderTop: '1px solid var(--border)',
+                  borderTop: '1px solid var(--line)',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
@@ -303,7 +308,7 @@ export default function OutlinePlannerModal({
                       checked={replaceExisting}
                       onChange={(e) => setReplaceExisting(e.target.checked)}
                     />
-                    <span style={{ fontSize: '0.85rem' }}>清空并替换现有章节目录</span>
+                    <span style={{ fontSize: '0.85rem' }}>替换现有章节目录（已写正文的章节会保留）</span>
                   </label>
                   <button
                     className="btn secondary"

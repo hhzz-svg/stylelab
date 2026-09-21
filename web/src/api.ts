@@ -57,6 +57,25 @@ export function notify(
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
+/** The studio routes call the LLM inline instead of queueing a job, so they
+ *  answer in 90-120s rather than the usual few hundred milliseconds. The
+ *  margin over each server budget is deliberate: internal/llm retries with
+ *  backoff *inside* the handler's own deadline, so a client timeout equal to
+ *  the server budget races the handler and turns a clean error into a generic
+ *  network failure. */
+const LLM_TIMEOUT_MS = {
+  outline: 135_000, // server budget 120s
+  audit: 115_000, // server budget 100s
+  branch: 105_000, // server budget 90s
+} as const
+
+/** Both APIError and NetworkError carry a message worth showing -- a bare
+ *  `err instanceof APIError` check swallows "请求超时，请重试". */
+export function errMessage(err: unknown, fallback: string): string {
+  if (err instanceof APIError || err instanceof NetworkError) return err.message
+  return fallback
+}
+
 async function parseError(res: Response): Promise<APIError> {
   let code = 'invalid'
   let message = res.statusText || 'request failed'
@@ -68,6 +87,22 @@ async function parseError(res: Response): Promise<APIError> {
     // keep defaults
   }
   return new APIError(res.status, code, message)
+}
+
+/** Reads the download name out of a Content-Disposition header, preferring the
+ *  RFC 5987 `filename*` form so a CJK project name survives. */
+function filenameFromDisposition(header: string | null): string | undefined {
+  if (!header) return undefined
+  const extended = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (extended) {
+    try {
+      return decodeURIComponent(extended[1].trim())
+    } catch {
+      // fall through to the ASCII form
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header)
+  return plain ? plain[1].trim() : undefined
 }
 
 async function request<T>(path: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
@@ -264,23 +299,6 @@ export const api = {
       body: JSON.stringify({ model, target_runes: targetRunes, note }),
     }),
 
-  downloadManuscript: async (projectId: string, filename = 'manuscript.md') => {
-    const res = await fetch(`/api/projects/${projectId}/manuscript.md`, { credentials: 'include' })
-    if (!res.ok) {
-      if (res.status === 401) window.dispatchEvent(new CustomEvent('app:unauth'))
-      throw await parseError(res)
-    }
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  },
-
   listBible: (projectId: string) =>
     request<{ entries: BibleEntrySummary[] }>(`/api/projects/${projectId}/bible`),
 
@@ -367,10 +385,11 @@ export const api = {
       card_id?: string
     },
   ) =>
-    request<OutlineResponse>(`/api/projects/${projectId}/outline/generate`, {
-      method: 'POST',
-      body: JSON.stringify(params),
-    }),
+    request<OutlineResponse>(
+      `/api/projects/${projectId}/outline/generate`,
+      { method: 'POST', body: JSON.stringify(params) },
+      LLM_TIMEOUT_MS.outline,
+    ),
 
   importOutline: (
     projectId: string,
@@ -380,16 +399,17 @@ export const api = {
       card_id?: string
     },
   ) =>
-    request<{ ok: boolean; inserted_count: number }>(`/api/projects/${projectId}/outline/import`, {
-      method: 'POST',
-      body: JSON.stringify(params),
-    }),
+    request<{ ok: boolean; inserted_count: number; protected_count: number }>(
+      `/api/projects/${projectId}/outline/import`,
+      { method: 'POST', body: JSON.stringify(params) },
+    ),
 
   branchSimulate: (chapterId: string, currentText: string, model?: string) =>
-    request<BranchSimulateResponse>(`/api/chapters/${chapterId}/branch-simulate`, {
-      method: 'POST',
-      body: JSON.stringify({ current_text: currentText, model }),
-    }),
+    request<BranchSimulateResponse>(
+      `/api/chapters/${chapterId}/branch-simulate`,
+      { method: 'POST', body: JSON.stringify({ current_text: currentText, model }) },
+      LLM_TIMEOUT_MS.branch,
+    ),
 
   continueChapter: (
     chapterId: string,
@@ -400,29 +420,33 @@ export const api = {
       model?: string
     },
   ) =>
-    request<{ ok: boolean; continued_text: string }>(`/api/chapters/${chapterId}/continue`, {
-      method: 'POST',
-      body: JSON.stringify(params),
-    }),
+    request<{ ok: boolean; continued_text: string }>(
+      `/api/chapters/${chapterId}/continue`,
+      { method: 'POST', body: JSON.stringify(params) },
+      LLM_TIMEOUT_MS.branch,
+    ),
 
   continuityAudit: (projectId: string, model?: string) =>
-    request<ContinuityAuditResponse>(`/api/projects/${projectId}/continuity-audit`, {
-      method: 'POST',
-      body: JSON.stringify({ model }),
-    }),
+    request<ContinuityAuditResponse>(
+      `/api/projects/${projectId}/continuity-audit`,
+      { method: 'POST', body: JSON.stringify({ model }) },
+      LLM_TIMEOUT_MS.audit,
+    ),
 
   downloadNovel: async (projectId: string, format: 'txt' | 'md' = 'txt') => {
     const res = await fetch(`/api/projects/${projectId}/export?format=${format}`, {
-      credentials: 'same-origin',
+      credentials: 'include',
     })
     if (!res.ok) {
-      throw new APIError(res.status, 'download_failed', `导出失败 (${res.status})`)
+      if (res.status === 401) window.dispatchEvent(new CustomEvent('app:unauth'))
+      throw await parseError(res)
     }
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `novel.${format}`
+    // The server names the file after the project; fall back only if it did not.
+    a.download = filenameFromDisposition(res.headers.get('Content-Disposition')) ?? `novel.${format}`
     document.body.appendChild(a)
     a.click()
     a.remove()

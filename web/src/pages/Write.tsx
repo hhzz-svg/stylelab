@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { BookOpenText, Download, FileText, Plus, ShieldAlert, Sparkles, Trash2, Wand2 } from 'lucide-react'
-import { APIError, api, notify } from '../api'
+import { APIError, api, errMessage, notify } from '../api'
 import { confirm } from '../components/ConfirmDialog'
 import ContinuityRadarModal from '../components/ContinuityRadarModal'
 import Crumb from '../components/Crumb'
@@ -40,6 +40,7 @@ export default function Write() {
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [radarOpen, setRadarOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
 
   function onJobStatus(status: JobStatus) {
     setJobActive(status === 'queued' || status === 'running')
@@ -65,6 +66,24 @@ export default function Write() {
       setChapters([])
     }
   }
+
+  useEffect(() => {
+    if (!exportOpen) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setExportOpen(false)
+    }
+    function onPointerDown(e: PointerEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onPointerDown)
+    }
+  }, [exportOpen])
 
   useEffect(() => {
     void load()
@@ -199,7 +218,7 @@ export default function Write() {
             <ShieldAlert size={16} color="#f87171" />
             伏笔逻辑雷达
           </button>
-          <div style={{ position: 'relative', display: 'inline-block' }}>
+          <div ref={exportRef} style={{ position: 'relative', display: 'inline-block' }}>
             <button
               className="btn secondary"
               type="button"
@@ -220,10 +239,10 @@ export default function Write() {
                   marginTop: '6px',
                   background: 'rgba(15, 20, 32, 0.98)',
                   backdropFilter: 'blur(16px)',
-                  border: '1px solid var(--border)',
+                  border: '1px solid var(--line)',
                   borderRadius: '8px',
                   boxShadow: '0 12px 30px rgba(0, 0, 0, 0.6)',
-                  zIndex: 200,
+                  zIndex: 90,
                   minWidth: '180px',
                   padding: '0.4rem',
                   display: 'flex',
@@ -241,7 +260,7 @@ export default function Write() {
                       await api.downloadNovel(projectId, 'txt')
                       notify('已导出标准 TXT 网文格式文稿！', 'success')
                     } catch (err) {
-                      notify(err instanceof APIError ? err.message : '导出失败', 'error')
+                      notify(errMessage(err, '导出失败'), 'error')
                     }
                   }}
                 >
@@ -257,7 +276,7 @@ export default function Write() {
                       await api.downloadNovel(projectId, 'md')
                       notify('已导出 Markdown 格式全书文稿！', 'success')
                     } catch (err) {
-                      notify(err instanceof APIError ? err.message : '导出失败', 'error')
+                      notify(errMessage(err, '导出失败'), 'error')
                     }
                   }}
                 >
@@ -401,19 +420,26 @@ export default function Write() {
 
       {jobId ? <JobProgress jobId={jobId} projectId={projectId} onStatus={onJobStatus} /> : null}
 
-      <OutlinePlannerModal
-        projectId={projectId}
-        cards={cards}
-        isOpen={outlineOpen}
-        onClose={() => setOutlineOpen(false)}
-        onImportSuccess={() => void load()}
-      />
+      {/* Mounted only while open: these modals keep their result in local
+          state, so an always-mounted instance reopens showing the last run
+          instead of a fresh form. */}
+      {outlineOpen ? (
+        <OutlinePlannerModal
+          projectId={projectId}
+          cards={cards}
+          isOpen={outlineOpen}
+          onClose={() => setOutlineOpen(false)}
+          onImportSuccess={() => void load()}
+        />
+      ) : null}
 
-      <ContinuityRadarModal
-        projectId={projectId}
-        isOpen={radarOpen}
-        onClose={() => setRadarOpen(false)}
-      />
+      {radarOpen ? (
+        <ContinuityRadarModal
+          projectId={projectId}
+          isOpen={radarOpen}
+          onClose={() => setRadarOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }

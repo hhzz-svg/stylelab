@@ -3641,3 +3641,87 @@ input[type="range"]::-moz-range-thumb {
 }
 
 
+
+/* ==========================================================================
+   SHARED MODAL LAYER
+   Added after the studio features shipped referencing these classes without
+   ever defining them: with no `position: fixed` on the backdrop, every
+   `.modal-backdrop` rendered as an ordinary block at the foot of the page.
+   Cards.tsx and Graph.tsx use the same two classes and were broken the same
+   way, so they are fixed by these rules too.
+   ========================================================================== */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 13, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  /* Matches .dialog-scrim; .toast-stack stays above at 110 so a toast raised
+     from inside a modal is still visible. */
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  animation: fadeIn 0.2s var(--ease);
+}
+
+.modal-panel {
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: linear-gradient(145deg, rgba(16, 22, 34, 0.98) 0%, rgba(10, 14, 22, 0.98) 100%);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg), 0 0 50px var(--gold-faint);
+  padding: 1.6rem 1.8rem;
+  animation: modalPop 0.22s var(--spring);
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.btn.icon-only {
+  padding: 0;
+  width: var(--control-h);
+  aspect-ratio: 1;
+  gap: 0;
+  flex: 0 0 auto;
+}
+
+/* Spinner used by every <Loader2 className="spin"> in the studio components.
+   Without these the loading icons sat frozen. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* The narration bar is centred with translateX(-50%), so both keyframes must
+   carry that translation or the bar slides out of centre while animating. */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop,
+  .modal-panel {
+    animation: none;
+  }
+}

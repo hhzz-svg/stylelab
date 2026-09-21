@@ -256,7 +256,8 @@ The `chore: strip UTF-8 BOMs` commit message claims "gofmt does not remove it". 
 - Ran every gate locally: gofmt clean, `go vet` clean, `go test ./... -count=1` passed, `npm run lint:css` passed, `npm run build` passed, `web/dist` clean.
 - Confirmed the vite build is deterministic — a rebuild reproduced the identical content hashes (`index-B5A6nmLf.css`, `index-Ch7qEWDB.js`), so the dist check will not be flaky.
 - **Proved each gate fails when it should**, then restored: bad indentation → gofmt step fails; `var(--border)` → CSS check fails naming the file; `className="brand-new-thing"` → CSS check fails and passes once baselined; a `styles.css` edit followed by a rebuild → dist check reports the changed bundle.
-- Not verified: the workflow has not yet run on GitHub Actions; the YAML parses and every step was executed locally, but runner behaviour is unconfirmed until the first push.
+- Confirmed green on GitHub Actions (run 35628489422, 1m23s total): Go job 79s (gofmt / vet / `go test` 37s), Web job 22s with all seven steps passing.
+- The `web/dist` freshness step passing on the Linux runner is the meaningful result: it rebuilt the SPA and got byte-identical output to the copy committed from a Windows worktree, so the check is reliable across platforms rather than merely reliable locally.
 
 ### Notes
 - `.github/workflows/ci.yml` - new.

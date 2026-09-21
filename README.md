@@ -97,6 +97,15 @@ services:
 9. **Sample (试写)** — short chapter from a premise (≤ 80 runes), target 800–2000 runes. Job kind `sample`.
 10. **Write** — `/p/:id/write` lists chapter briefs. `/p/:id/chapter/:chapterId` is a chapter workbench: body in the main column, bound style card and previous-chapter tail in the intel rail, sticky save / write / prev / next. The write API is unchanged.
 11. **Story bible (设定集)** — `/p/:id/bible`. Register characters, settings, and threads (手动 CRUD). Entries are injected into the chapter generation prompt; after each chapter is written, an LLM pass incrementally maintains the bible (新增/更新，AI 不删除条目，失败不致命). For existing projects, `从已有章节同步` starts a `bible_sync` job that replays every written chapter in seq order to rebuild the bible. The chapter workbench intel rail also shows the current bible grouped by kind.
+12. **Relationship graph (关系图谱)** — `/p/:id/graph`. Nodes and edges for characters, factions, and places, edited by hand or seeded from written chapters with `graph/extract`.
+13. **Outline planner (智能大纲规划)** — on `/p/:id/write`. Generates a volume/chapter outline from a premise, then imports it as chapter briefs. Import appends after any chapter that already has prose: `替换现有章节目录` replaces only unwritten drafts and reports how many finished chapters it kept.
+14. **Continuity radar (伏笔逻辑雷达)** — on `/p/:id/write`. Audits written chapters plus the story bible for power-scaling breaks, characterisation drift, and dangling foreshadowing. Issues carry a severity and a category, and both can be filtered. The report is not persisted, so each scan is a fresh pass.
+15. **Branch simulator (灵感推演) and narration (沉浸朗读)** — on the chapter workbench. The simulator proposes plot branches from the current draft and can continue the chapter inline (the result lands in the editor unsaved, so save it deliberately). Narration reads the chapter aloud with the browser's own speech synthesis — no server, no TTS provider.
+16. **Whole-novel export** — `导出全书` on `/p/:id/write` downloads the manuscript as TXT or Markdown, named after the project.
+
+Steps 13–15 call the model **inline** rather than through a job, so those
+requests stay open for 90–120 seconds instead of returning a job id. They have
+no progress bar and cannot be cancelled; everything else long-running is a job.
 
 Jobs are in-process (`queued` → `running` → `succeeded` / `failed` / `canceled`). Default concurrency is 2. A process restart marks leftover `running` rows `failed` with `interrupted`.
 

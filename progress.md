@@ -196,3 +196,40 @@ Completed the chapter-detail workbench pass within the approved frontend scope. 
 - `docs/superpowers/specs/2026-08-19-chapter-workbench-safety-ui-refinement-design.md` - retains the approved dialog close-before-confirm boundary.
 - `docs/superpowers/plans/2026-08-19-chapter-workbench-safety-ui-refinement-implementation.md` - appended the implementation status and verification-gap record.
 - Rollback point: revert only the chapter hunks in the five files above plus the appended plan/progress blocks; do not reset the dirty worktree or remove unrelated build assets.
+
+## 2026-09-21 - Task: Repair the studio feature batch
+
+### What was done
+Commit `9cf4fb7` shipped five features (Master Outline Planner, Continuity Radar, Branching Simulator, Multi-Format Exporter, Audio Narration) that compiled and left `go test ./...` green but could not actually be used. This pass fixed them without adding features and without converting the inline LLM calls to the job system.
+
+The headline defect was that all four LLM endpoints passed `req.Model` to the provider with no default while no frontend caller sent one, so every call shipped `{"model":""}` and failed. The second was that `web/src/styles.css` was never touched by that commit, so `.modal-backdrop`, `.modal-panel`, `.modal-head`, `.btn.icon-only`, `@keyframes spin` and `@keyframes fadeInUp` had no definitions — with no `position: fixed` the two Write-page modals rendered as ordinary blocks at the foot of the page and every spinner sat frozen. The components also used `var(--border)` / `var(--text)` / `var(--muted)`, none of which exist in this design system.
+
+Also fixed: `replace_existing` outline import ran an unguarded `DELETE FROM chapters` and destroyed finished manuscript bodies; export swallowed scan errors and never checked `rows.Err()`, so a mid-iteration failure returned a silently truncated novel under HTTP 200, and the project name went raw into `Content-Disposition`; the continuity and branch prompts were assembled from the entire manuscript with no cap; the client aborted at 30s against 90–120s server budgets, and the abort's `NetworkError` was swallowed by `instanceof APIError` checks.
+
+### Testing
+- `gofmt -l internal/ cmd/` (clean; two BOMs stripped first)
+- `go vet ./...` (passed)
+- `go test ./... -count=1` (passed, including the 12 new studio tests)
+- Regression locks verified by temporarily reverting the fixes: the model and import tests fail with "model sent to provider was empty" and "written chapter is gone: 404", then pass again once restored
+- `cd web && npm ci && npm run build` (`tsc --noEmit && vite build`, passed)
+- Verified the new CSS is present in the built bundle, not just the source, since `web/dist` is what the binary embeds
+- Not verified: live browser checks of the repaired modals, and no real-provider call was made — the tests stub the LLM through the BYOK `base_url`
+
+### Notes
+- `internal/httpapi/helpers.go` - new: `resolveModel`, `headRunes`, `tailRunes`, and an RFC 5987 `contentDispositionAttachment`.
+- `internal/httpapi/outline.go` - model default, batch cap, pre-transaction validation (rejects the empty brief that would make a chapter permanently unwritable), `write.Prefix` / `write.ClampTarget`, card-ownership 404, and a replace that preserves written chapters and appends after them (forced by `UNIQUE (project_id, seq)`), reporting `protected_count`.
+- `internal/httpapi/continuity.go`, `branch.go` - model default with a chapter-model fallback, bounded prompt context, `rows.Err()` checks.
+- `internal/httpapi/graph.go` - same empty-model bug fixed; uses the server's shared `llm.Client`.
+- `internal/httpapi/export.go` - scan/`rows.Err()` handling and a parseable `Content-Disposition`.
+- `internal/httpapi/studio_test.go` - new: 12 tests over the six previously untested routes; stubs the LLM by pointing a stored BYOK `base_url` at an `httptest` server, which also makes the request body assertable.
+- `web/src/styles.css` - shared modal layer, spinner and `fadeInUp` keyframes; also repairs `Cards.tsx` and `Graph.tsx`, which used the same undefined classes.
+- `web/src/api.ts` - per-route LLM timeouts, `errMessage`, `Content-Disposition`-aware `downloadNovel`; removed the now-callerless `downloadManuscript` (the Go route remains).
+- `web/src/components/*`, `web/src/pages/Write.tsx` - real design tokens, z-index folded onto the existing scale, StrictMode audit guard, category filter, `plot_points` rendering, voice picker, unsupported-TTS message, export-menu dismissal, modals unmount on close.
+- `web/dist/**` - rebuilt.
+- `README.md` - workflow steps 12–16, and a note that steps 13–15 are inline LLM calls rather than jobs.
+- Rollback point: revert commits `aa0764e`, `43e4392`, `8dd4e84`, `f217264` and this block. All changes are additive to the schema-free surface; no migration is involved.
+
+### Known gaps (deliberately out of scope this pass)
+- The inline 90–120s LLM calls still bypass the job system, so they have no progress, no cancel, and no recovery across restart.
+- `outline.go` / `continuity.go` / `branch.go` still hold business logic, raw SQL and ~100 lines of prompt text in the httpapi layer instead of a domain package with prompts in `internal/llm/prompts.go` — this is the root cause of the ID-prefix and validation drift fixed above.
+- There is no CI. A `go test` + `gofmt` + `tsc` + `vite build` gate would have caught most of this batch, especially a `web/src` change shipped without rebuilding `web/dist`.

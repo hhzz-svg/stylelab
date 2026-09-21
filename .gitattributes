@@ -1,0 +1,15 @@
+# Normalise line endings to LF everywhere.
+#
+# web/dist is a committed build artifact that CI rebuilds and byte-compares
+# against the checked-in copy. If a Windows worktree fed CRLF sources into the
+# build while CI fed LF, the two bundles could differ and the freshness check
+# would fail for no real reason. Every blob in this repo is already LF in the
+# index, so this just pins the working tree to match.
+* text=auto eol=lf
+
+# Binary assets must never be touched.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary

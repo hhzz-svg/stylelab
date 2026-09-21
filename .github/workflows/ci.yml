@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A newer push to the same branch makes the in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Kept in step with the builder stage in Dockerfile.
+          go-version: '1.22'
+          cache: true
+
+      - name: gofmt
+        # Also covers UTF-8 BOMs: gofmt -l flags a BOM'd file even when it is
+        # otherwise clean, and gofmt -w strips the BOM. Two handlers shipped
+        # with one, which is what an unenforced gofmt lets through.
+        run: |
+          unformatted="$(gofmt -l internal cmd)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofmt'd. Run: gofmt -w internal cmd"
+            echo "$unformatted"
+            exit 1
+          fi
+          echo "gofmt clean"
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        # web/dist is committed and embedded via //go:embed, so this compiles
+        # without a frontend build.
+        run: go test ./... -count=1
+
+  frontend:
+    name: Web
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Kept in step with the web stage in Dockerfile.
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # ci, not install: package-lock.json is committed, and an exact install
+      # is what makes the dist comparison below meaningful.
+      - name: Install
+        run: npm ci
+
+      - name: Undefined CSS classes and custom properties
+        run: npm run lint:css
+
+      - name: Typecheck and build
+        run: npm run build
+
+      - name: web/dist is up to date
+        # web/dist is committed AND embedded into the Go binary, so a frontend
+        # change that is not rebuilt ships a stale UI with a green test suite.
+        # The build above just regenerated it; nothing should have changed.
+        working-directory: .
+        run: |
+          changed="$(git status --porcelain -- web/dist)"
+          if [ -n "$changed" ]; then
+            echo "::error::web/dist does not match web/src. Run: cd web && npm ci && npm run build, then commit web/dist"
+            echo "$changed"
+            git diff --stat -- web/dist
+            exit 1
+          fi
+          echo "web/dist is current"

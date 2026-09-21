@@ -233,3 +233,42 @@ Also fixed: `replace_existing` outline import ran an unguarded `DELETE FROM chap
 - The inline 90–120s LLM calls still bypass the job system, so they have no progress, no cancel, and no recovery across restart.
 - `outline.go` / `continuity.go` / `branch.go` still hold business logic, raw SQL and ~100 lines of prompt text in the httpapi layer instead of a domain package with prompts in `internal/llm/prompts.go` — this is the root cause of the ID-prefix and validation drift fixed above.
 - There is no CI. A `go test` + `gofmt` + `tsc` + `vite build` gate would have caught most of this batch, especially a `web/src` change shipped without rebuilding `web/dist`.
+
+## 2026-09-21 - Task: CI gate
+
+### What was done
+Added `.github/workflows/ci.yml` so the failure modes from the previous two passes cannot reach the trunk again. No business code changed.
+
+The point of this pass is that the last batch shipped with a fully green `go test ./...`: the empty-model bug, the undefined `.modal-backdrop` / `.spin` rules, the three non-existent design tokens, the UTF-8 BOMs, and a `web/dist` that could silently fall behind `web/src` were all invisible to the toolchain. CI now covers each of them.
+
+Two jobs run in parallel, pinned to the same versions as `Dockerfile` (Go 1.22 / Node 20):
+- **Go** — `gofmt -l internal cmd` (fails on any output), `go vet ./...`, `go test ./... -count=1`.
+- **Web** — `npm ci`, `npm run lint:css`, `npm run build` (`tsc --noEmit && vite build`), then a `web/dist` freshness check.
+
+`web/scripts/check-css.mjs` is a zero-dependency Node script covering the two CSS failures specifically: undefined `var(--x)` (zero baseline — there are none today, any new one fails) and `className` values with no rule in `styles.css` (58 pre-existing gaps recorded in `web/scripts/css-baseline.json`; only new ones fail, and the check also reports when a baseline entry has been fixed so the list keeps shrinking). It only sees static class names; dynamically built ones are out of reach and the script says so.
+
+`.gitattributes` pins the working tree to LF. This is a prerequisite for the `web/dist` check rather than tidying: the repo is developed on Windows, and a CRLF worktree feeding the build while CI feeds LF could produce different bytes and a false failure. `git add --renormalize .` produced no churn, confirming the index was already all-LF.
+
+### Correction to the previous entry
+The `chore: strip UTF-8 BOMs` commit message claims "gofmt does not remove it". That is wrong: `gofmt -w` does strip a BOM, and `gofmt -l` flags a BOM'd file even when it is otherwise clean. The BOMs were real and are gone, but a separate BOM check would be redundant, so CI relies on the gofmt gate alone.
+
+### Testing
+- Ran every gate locally: gofmt clean, `go vet` clean, `go test ./... -count=1` passed, `npm run lint:css` passed, `npm run build` passed, `web/dist` clean.
+- Confirmed the vite build is deterministic — a rebuild reproduced the identical content hashes (`index-B5A6nmLf.css`, `index-Ch7qEWDB.js`), so the dist check will not be flaky.
+- **Proved each gate fails when it should**, then restored: bad indentation → gofmt step fails; `var(--border)` → CSS check fails naming the file; `className="brand-new-thing"` → CSS check fails and passes once baselined; a `styles.css` edit followed by a rebuild → dist check reports the changed bundle.
+- Not verified: the workflow has not yet run on GitHub Actions; the YAML parses and every step was executed locally, but runner behaviour is unconfirmed until the first push.
+
+### Notes
+- `.github/workflows/ci.yml` - new.
+- `.gitattributes` - new, `* text=auto eol=lf` plus binary asset exclusions.
+- `web/scripts/check-css.mjs`, `web/scripts/css-baseline.json` - new.
+- `web/package.json` - added `lint:css`.
+- `README.md` - a CI section, and a much more prominent statement of the `web/dist` rebuild rule.
+- Rollback point: delete the four new files and revert the `package.json` / `README.md` hunks. Nothing in `internal/` or `web/src` was touched.
+
+### Finding: 58 undefined class names, two of them live defects
+The new check surfaced a pre-existing problem larger than the one fixed last pass. These are recorded in the baseline, not fixed:
+- **Every job progress bar is invisible.** `JobProgress.tsx:57-72` uses `.job-bar` / `.job-track` / `.job-fill`; all three appear **zero times** in `styles.css`. `.job-fill` receives only an inline `width: X%` — with no height or background it renders nothing. Affects extract, fuse, audit, sample, write and bible_sync.
+- **`.sr-only` is undefined, so screen-reader-only labels render as visible text**: `Bible.tsx:264,269,278` and `Cards.tsx:222,227,234` (六处「搜索条目 / 条目类型 / 排序方式 / 搜索卡片 / 卡片类型」).
+- Others include `.skeleton`, `.spinner`, `.toast-msg`, `.tooltip-bubble`, `.deck-drawer`, `.icon-btn`, `.notfound`, `.offline-banner`.
+Recommended next pass: fix `.job-track` / `.job-fill` and `.sr-only` first, then work the baseline down.

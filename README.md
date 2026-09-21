@@ -51,7 +51,14 @@ cd web && npm run dev
 
 Vite proxies `/api` to `http://127.0.0.1:8080`. After UI changes that you want inside the Go binary, run `cd web && npm run build` again.
 
-If `web/dist` is missing, `go test` / `go run` will fail to compile the embed. Rebuild the SPA, or keep the committed `web/dist` tree.
+`web/dist` is **committed and embedded into the binary** (`//go:embed all:dist`).
+Two consequences worth internalising:
+
+- If `web/dist` is missing, `go test` / `go run` will fail to compile the embed.
+- If you change anything under `web/src` and do not rebuild, the binary keeps
+  serving the old UI — and the Go test suite stays green while doing it. Always
+  finish a frontend change with `cd web && npm run build`, and commit the
+  regenerated `web/dist`. CI fails the build if the two drift apart.
 
 ## Docker
 
@@ -116,6 +123,37 @@ In Lab, **Export** downloads `simulation_profile.json` (`version: simulation_pro
 That file is a technique profile for ainovel-cli (or any consumer of the same schema). It maps the nine dimensions into `synthesis.style` / `pacing_density` / `hook_design`, copies prohibitions to `do_not_copy`, and leaves `corpus.sources` empty. It does not include author names or long source excerpts.
 
 Use the downloaded JSON as a simulation profile input in ainovel-cli. Style Lab never shells out to ainovel-cli.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+| Check | What it catches |
+|---|---|
+| `gofmt -l internal cmd` | Unformatted Go, including a stray UTF-8 BOM |
+| `go vet ./...` | Suspicious constructs |
+| `go test ./... -count=1` | Behaviour, including the studio-route regression locks |
+| `npm run lint:css` | `var(--x)` and `className` values with no definition in `styles.css` |
+| `npm run build` | Type errors (`tsc --noEmit`) and a broken production build |
+| `web/dist` diff | A frontend change that was never rebuilt, which would ship a stale UI |
+
+Run the whole set locally before pushing:
+
+```bash
+gofmt -l internal cmd && go vet ./... && go test ./... -count=1
+cd web && npm ci && npm run lint:css && npm run build
+git status --porcelain -- web/dist    # must be empty
+```
+
+`npm run lint:css` compares against `web/scripts/css-baseline.json`, which
+records class names that are used but have no rule today. The list is a record
+of existing gaps, not approved ones — it must only ever shrink. Adding a *new*
+undefined class fails the build; regenerate the file with
+`npm run lint:css -- --write-baseline` only when you have deliberately added an
+unstyled class, and the check will also tell you when an entry can be removed.
+
+Undefined CSS custom properties have no baseline: there are none today, and any
+new one fails the build.
 
 ## Layout
 

@@ -555,13 +555,14 @@ func (s *Server) handleCreateCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	verID := ids.New("ver_")
+	// style_card_versions is keyed by (card_id, version) and has no id column;
+	// every other writer (extract, fuse, handleCreateCardVersion) omits it.
 	if _, err := tx.ExecContext(
 		r.Context(),
 		`INSERT INTO style_card_versions
-		 (id, card_id, version, dimensions_json, prohibitions_json, facts_json, lineage_json, created_at)
-		 VALUES (?, ?, 1, ?, ?, '{}', NULL, ?)`,
-		verID, cardID, string(dimsJSON), string(prohibJSON), now,
+		 (card_id, version, dimensions_json, prohibitions_json, facts_json, lineage_json, created_at)
+		 VALUES (?, 1, ?, ?, '{}', NULL, ?)`,
+		cardID, string(dimsJSON), string(prohibJSON), now,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
 		return

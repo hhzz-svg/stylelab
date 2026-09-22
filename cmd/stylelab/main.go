@@ -21,6 +21,7 @@ import (
 	"stylelab/internal/llm"
 	"stylelab/internal/sample"
 	"stylelab/internal/store"
+	"stylelab/internal/studio"
 	"stylelab/internal/write"
 	"stylelab/web"
 )
@@ -51,6 +52,10 @@ func main() {
 	runner.Register(job.KindSample, sample.JobHandler(st, llmClient, cfg.MasterKey))
 	runner.Register(job.KindWrite, write.JobHandler(st, llmClient, cfg.MasterKey))
 	runner.Register(job.KindBibleSync, bible.JobHandler(st, llmClient, cfg.MasterKey))
+	runner.Register(job.KindOutline, studio.OutlineJobHandler(st, llmClient, cfg.MasterKey))
+	runner.Register(job.KindContinuity, studio.ContinuityJobHandler(st, llmClient, cfg.MasterKey))
+	runner.Register(job.KindBranch, studio.BranchJobHandler(st, llmClient, cfg.MasterKey))
+	runner.Register(job.KindContinue, studio.ContinueJobHandler(st, llmClient, cfg.MasterKey))
 	if _, err := runner.RecoverInterrupted(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

@@ -80,6 +80,19 @@ export function resultFromJob(result: Job['result']): JobResult {
   return result
 }
 
+/** 读取「结果即数据」类任务（大纲/雷达/推演/续写）的结果载荷。 */
+export function resultData<T>(result: Job['result']): T | null {
+  if (!result) return null
+  if (typeof result === 'string') {
+    try {
+      return JSON.parse(result) as T
+    } catch {
+      return null
+    }
+  }
+  return result as T
+}
+
 /** 任务结果 → 前端路由。无结果返回空串。 */
 export function resultRoute(projectId: string, result: JobResult): string {
   if (result.card_id) return `/p/${projectId}/lab/${result.card_id}`

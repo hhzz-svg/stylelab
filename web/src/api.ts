@@ -4,11 +4,9 @@ import type {
   AuditReport,
   BibleEntry,
   BibleEntrySummary,
-  BranchSimulateResponse,
   CardSummary,
   Chapter,
   ChapterSummary,
-  ContinuityAuditResponse,
   GraphData,
   GraphEdge,
   GraphNode,
@@ -16,7 +14,6 @@ import type {
   LLMKey,
   Me,
   OutlineChapterItem,
-  OutlineResponse,
   ParentRef,
   Project,
   SampleChapter,
@@ -56,18 +53,6 @@ export function notify(
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
-
-/** The studio routes call the LLM inline instead of queueing a job, so they
- *  answer in 90-120s rather than the usual few hundred milliseconds. The
- *  margin over each server budget is deliberate: internal/llm retries with
- *  backoff *inside* the handler's own deadline, so a client timeout equal to
- *  the server budget races the handler and turns a clean error into a generic
- *  network failure. */
-const LLM_TIMEOUT_MS = {
-  outline: 135_000, // server budget 120s
-  audit: 115_000, // server budget 100s
-  branch: 105_000, // server budget 90s
-} as const
 
 /** Both APIError and NetworkError carry a message worth showing -- a bare
  *  `err instanceof APIError` check swallows "请求超时，请重试". */
@@ -385,11 +370,10 @@ export const api = {
       card_id?: string
     },
   ) =>
-    request<OutlineResponse>(
-      `/api/projects/${projectId}/outline/generate`,
-      { method: 'POST', body: JSON.stringify(params) },
-      LLM_TIMEOUT_MS.outline,
-    ),
+    request<{ job_id: string }>(`/api/projects/${projectId}/outline/generate`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
 
   importOutline: (
     projectId: string,
@@ -405,11 +389,10 @@ export const api = {
     ),
 
   branchSimulate: (chapterId: string, currentText: string, model?: string) =>
-    request<BranchSimulateResponse>(
-      `/api/chapters/${chapterId}/branch-simulate`,
-      { method: 'POST', body: JSON.stringify({ current_text: currentText, model }) },
-      LLM_TIMEOUT_MS.branch,
-    ),
+    request<{ job_id: string }>(`/api/chapters/${chapterId}/branch-simulate`, {
+      method: 'POST',
+      body: JSON.stringify({ current_text: currentText, model }),
+    }),
 
   continueChapter: (
     chapterId: string,
@@ -420,18 +403,16 @@ export const api = {
       model?: string
     },
   ) =>
-    request<{ ok: boolean; continued_text: string }>(
-      `/api/chapters/${chapterId}/continue`,
-      { method: 'POST', body: JSON.stringify(params) },
-      LLM_TIMEOUT_MS.branch,
-    ),
+    request<{ job_id: string }>(`/api/chapters/${chapterId}/continue`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
 
   continuityAudit: (projectId: string, model?: string) =>
-    request<ContinuityAuditResponse>(
-      `/api/projects/${projectId}/continuity-audit`,
-      { method: 'POST', body: JSON.stringify({ model }) },
-      LLM_TIMEOUT_MS.audit,
-    ),
+    request<{ job_id: string }>(`/api/projects/${projectId}/continuity-audit`, {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
 
   downloadNovel: async (projectId: string, format: 'txt' | 'md' = 'txt') => {
     const res = await fetch(`/api/projects/${projectId}/export?format=${format}`, {

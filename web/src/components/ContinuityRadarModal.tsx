@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { CheckCircle2, Loader2, RefreshCw, ShieldAlert, X } from 'lucide-react'
 import { api, errMessage, notify } from '../api'
-import type { ContinuityAuditResponse } from '../types'
+import JobProgress from './JobProgress'
+import { registerJob, resultData } from '../jobs'
+import type { ContinuityAuditResponse, Job } from '../types'
 
 const CATEGORY_LABEL: Record<string, string> = {
   realm: '战力境界',
@@ -25,6 +27,7 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
   // React 18 StrictMode double-invokes effects in development; without this
   // guard every open fired two concurrent audits against the user's API key.
   const inFlight = useRef(false)
+  const [jobId, setJobId] = useState('')
 
   useEffect(() => {
     if (isOpen && !report) {
@@ -40,15 +43,32 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
     setError('')
     setLoading(true)
     try {
-      const res = await api.continuityAudit(projectId)
-      setReport(res)
-      notify('伏笔与战力逻辑雷达扫描完成！', 'success')
+      const { job_id } = await api.continuityAudit(projectId)
+      // Registered so the dock keeps it alive across a refresh or a page change.
+      registerJob({ jobId: job_id, projectId, kind: 'continuity_audit', label: '伏笔逻辑雷达', startedAt: Date.now() })
+      setJobId(job_id)
     } catch (err) {
       setError(errMessage(err, '逻辑雷达扫描失败'))
-    } finally {
-      inFlight.current = false
       setLoading(false)
+      inFlight.current = false
     }
+  }
+
+  function onAuditDone(job: Job) {
+    inFlight.current = false
+    setLoading(false)
+    setJobId('')
+    if (job.status === 'succeeded') {
+      const data = resultData<ContinuityAuditResponse>(job.result)
+      if (data) {
+        setReport(data)
+        notify('伏笔与战力逻辑雷达扫描完成！', 'success')
+        return
+      }
+      setError('审计完成，但结果无法解析')
+      return
+    }
+    setError(job.error || '逻辑雷达扫描失败')
   }
 
   const issues = report?.issues ?? []
@@ -109,6 +129,21 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
               <Loader2 size={36} className="spin" style={{ color: 'var(--gold-hi)', marginBottom: '1rem' }} />
               <p style={{ fontSize: '1rem', color: '#fff', margin: '0 0 0.5rem' }}>AI 审计官正在深度巡检全书章节与设定集…</p>
               <span className="muted" style={{ fontSize: '0.85rem' }}>比对境界体系、人设一致性、物品归属与伏笔网络</span>
+              {jobId ? (
+                <div style={{ maxWidth: '360px', margin: '1.2rem auto 0' }}>
+                  <JobProgress
+                    jobId={jobId}
+                    projectId={projectId}
+                    autoNavigate={false}
+                    onSucceeded={(_r, job) => onAuditDone(job)}
+                    onStatus={(status) => {
+                      if (status === 'failed' || status === 'canceled') {
+                        onAuditDone({ id: jobId, status } as Job)
+                      }
+                    }}
+                  />
+                </div>
+              ) : null}
             </div>
           ) : report ? (
             <div className="stack" style={{ gap: '1.4rem' }}>

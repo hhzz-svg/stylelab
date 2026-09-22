@@ -20,9 +20,15 @@ function DockItem({ rec }: { rec: JobRecord }) {
     handled.current = true
     if (job.status === 'succeeded') {
       const to = resultRoute(rec.projectId, resultFromJob(job.result))
-      // 已在结果页（发起页的进度条刚跳过来）就不重复提醒
-      if (to && location.pathname !== to) {
-        notify(`${rec.label}完成`, 'success', { label: '查看', to })
+      if (to) {
+        // 已在结果页（发起页的进度条刚跳过来）就不重复提醒
+        if (location.pathname !== to) {
+          notify(`${rec.label}完成`, 'success', { label: '查看', to })
+        }
+      } else {
+        // 结果即数据的任务（大纲/雷达/推演/续写）没有结果页可跳。
+        // 仍然要提醒，否则它会从任务坞里悄无声息地消失。
+        notify(`${rec.label}完成`, 'success')
       }
     } else if (job.status === 'failed') {
       notify(`${rec.label}失败：${job.error || '未知原因'}`, 'error')

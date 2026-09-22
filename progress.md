@@ -273,3 +273,43 @@ The new check surfaced a pre-existing problem larger than the one fixed last pas
 - **`.sr-only` is undefined, so screen-reader-only labels render as visible text**: `Bible.tsx:264,269,278` and `Cards.tsx:222,227,234` (六处「搜索条目 / 条目类型 / 排序方式 / 搜索卡片 / 卡片类型」).
 - Others include `.skeleton`, `.spinner`, `.toast-msg`, `.tooltip-bubble`, `.deck-drawer`, `.icon-btn`, `.notfound`, `.offline-banner`.
 Recommended next pass: fix `.job-track` / `.job-fill` and `.sr-only` first, then work the baseline down.
+
+## 2026-09-22 - Task: Repair the stylesheet, and move the studio features onto the job system
+
+### What was done
+Two things, in the scope the user picked: UI tier 1+2, and the long-running LLM calls converted to jobs.
+
+**UI.** The lint added last round found 58 class names used in `web/src` with no rule in `styles.css`. The cause was not sloppy authoring: `8920c32` rewrote the component tree without the stylesheet following it, leaving 67 orphaned rules under old names and 58 unstyled names under new ones — two vocabularies for the same UI. They line up almost one to one, so most of the fix was widening a selector (`.dock-track` → also `.job-track`, `.fuse-mixer-card` → also `.fuse-control-panel`/`.fuse-slot-panel`, `.fuse-ignite-bar` → also `.fuse-command-bar`, `.crumb span.sep` → `.crumb-sep`, `.toast-x` → also `.dock-x`) rather than writing new CSS.
+
+What was actually broken: every job progress bar was a zero-height invisible div; the card deck drawer rendered as a block at the foot of the page with a zero-size scrim; `.sr-only` was undefined so six labels showed as text and pushed the search icon out of line; skeletons were blank holes; spinners painted nothing; `.icon-btn` had no hit area in 8 files; the Fuse two-column layout collapsed with no panel chrome.
+
+That work also exposed a containing-block bug: `.page` used `animation: pageRise ... both`, and `fill-mode: both` leaves the final keyframe's transform applied forever. Even an identity transform makes the element the containing block for `position: fixed` descendants, so every overlay inside a page — including the studio modals repaired two rounds ago — was confined to the content area. The final keyframe equals the element's natural state, so the fill-mode bought nothing. Measured: `.modal-backdrop` went from 1086×465 at (309,35) to 1440×1000 at (0,0).
+
+**Functionality.** Outline generation, the continuity radar, the branch simulator and chapter continuation were synchronous 90–120s HTTP requests. They are now jobs: new `internal/studio` package (one package, not three, because these three share a shape no other feature has — the job result *is* the data, not an id), prompts moved into `internal/llm/prompts.go`, four new job kinds registered in `main.go`, and the four handlers reduced to validate-then-enqueue returning 202. No new tables: `job.Record.Result` carries the payload. The frontend submits, registers the job with the dock, and renders `JobProgress` with `autoNavigate={false}`.
+
+### Also fixed along the way
+- **`POST /api/projects/{id}/cards` always returned 500** (committed separately). It inserted an `id` column into `style_card_versions`, which is keyed by `(card_id, version)` and has no such column. Manual card creation and the official-preset import had therefore never worked. Found by clicking 一键导入此卡 in a real browser and reading the toast: "internal error".
+- The job dock only toasted on completion when the result mapped to a route. The studio kinds have no route, so a job finishing while the user was on another page disappeared from the dock silently. It now notifies without the 查看 action.
+
+### Testing
+- `gofmt -l internal cmd` clean, `go vet ./...`, `go test ./... -count=1` (17 packages) all pass.
+- Studio tests rewritten from synchronous 200 to 202 + poll, keeping the same regression properties (non-empty model, bounded context, cross-user 404 without reaching the LLM, 400 with no key) and adding: the job result carries its data, a non-JSON reply fails the job with a message, and a job can be cancelled.
+- New tests for `POST /api/projects/{id}/cards`, verified to fail with "status = 500, want 201" against the old insert.
+- `npm run lint:css` passes; baseline 58 → 13.
+- **Driven in a real browser (Playwright + the pre-installed Chromium), not just asserted in tests**: `.sr-only` spans measure 1×1; the preset modal backdrop is 1440×1000 at (0,0); the deck drawer is fixed, 460 wide, full height, with a full-viewport scrim; `.fuse-layout` is a two-column grid with both children on the same row; `.contribution-row` is a 4-column grid; the progress bar renders 4px tall and animates with real job progress ("generate · 35%"); a refresh mid-job leaves the dock holding the task; navigating away mid-job still produces the completion toast.
+- Not verified: behaviour against a real provider (the LLM is stubbed through the BYOK `base_url` throughout), and mobile widths were not re-checked after the Fuse layout change beyond the CSS media queries.
+
+### Notes
+- `internal/studio/{studio,outline,continuity,branch}.go` - new domain package.
+- `internal/llm/prompts.go` - `OutlineSystem`, `ContinuityAuditSystem`, `BranchSimulateSystem`, `ChapterContinueSystem`.
+- `internal/job/job.go`, `cmd/stylelab/main.go` - four new kinds, registered.
+- `internal/httpapi/{outline,continuity,branch}.go` - reduced to validate + enqueue; `helpers.go` gained `enqueueStudioJob`/`trimInvalid`.
+- `internal/httpapi/cards.go` - the 500 fix; `cards_create_test.go` new.
+- `web/src/styles.css` - the reconciliation layer; `web/src/{api,jobs,types}.ts`, `components/{JobProgress,JobDock,OutlinePlannerModal,ContinuityRadarModal,BranchSimulationDrawer}.tsx`, `pages/Chapter.tsx`.
+- `README.md` - steps 13–15 are now jobs, and the response is 202 not 200.
+- Rollback: the studio conversion and the CSS work are separate commits and revert independently.
+
+### Known gaps
+- `loadUserKey` is now duplicated in seven packages. Worth consolidating, but it touches every job package.
+- Outline/audit/branch results are still not persisted, so re-opening the radar costs another model call. Storing them is the natural next step now that they are jobs.
+- `.dock-card.failed`, `.preset-tag`, `.muted-row`, `.ok`/`.warn` are dynamic or compound names the lint cannot see statically; they remain unchecked.

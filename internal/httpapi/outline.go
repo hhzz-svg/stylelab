@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,7 +10,8 @@ import (
 	"time"
 
 	"stylelab/internal/ids"
-	"stylelab/internal/llm"
+	"stylelab/internal/job"
+	"stylelab/internal/studio"
 	"stylelab/internal/write"
 )
 
@@ -43,18 +43,6 @@ type outlineChapterItem struct {
 	Hook  string `json:"hook"`
 }
 
-type outlineVolumeItem struct {
-	VolumeIndex int                  `json:"volume_index"`
-	VolumeTitle string               `json:"volume_title"`
-	VolumeBrief string               `json:"volume_brief"`
-	Chapters    []outlineChapterItem `json:"chapters"`
-}
-
-type generateOutlineResponse struct {
-	Synopsis string              `json:"synopsis"`
-	Volumes  []outlineVolumeItem `json:"volumes"`
-}
-
 func (s *Server) handleGenerateOutline(w http.ResponseWriter, r *http.Request) {
 	userID, err := s.currentUserID(r)
 	if err != nil {
@@ -77,107 +65,26 @@ func (s *Server) handleGenerateOutline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	premise := strings.TrimSpace(req.Premise)
-	if premise == "" {
-		writeError(w, http.StatusBadRequest, "invalid", "故事核心梗概 (premise) 不能为空")
+	in := studio.OutlineInput{
+		ProjectID:      projectID,
+		Premise:        req.Premise,
+		Genre:          req.Genre,
+		TargetChapters: req.TargetChapters,
+		VolumeCount:    req.VolumeCount,
+		Model:          req.Model,
+	}
+	// Validate now so the caller gets a 400 rather than a job that fails a
+	// minute later.
+	if err := studio.ValidateOutlineInput(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid", trimInvalid(err))
 		return
 	}
-	if req.TargetChapters <= 0 || req.TargetChapters > maxOutlineChapters {
-		req.TargetChapters = 15
-	}
-	if req.VolumeCount <= 0 {
-		req.VolumeCount = 2
-	}
-	if req.Genre == "" {
-		req.Genre = "玄幻修真/都市异能/科幻末世"
-	}
-
-	key, err := s.loadUserLLMKey(r.Context(), userID)
-	if err != nil {
+	if _, err := s.loadUserLLMKey(r.Context(), userID); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid", "未配置 LLM 模型密钥，请前往设置配置")
 		return
 	}
 
-	// 收集已有设定集辅助
-	var bibleSnippets []string
-	bRows, err := s.st.DB().QueryContext(r.Context(),
-		`SELECT kind, name, content FROM bible_entries WHERE project_id = ? AND status = 'active' LIMIT 15`,
-		projectID,
-	)
-	if err == nil {
-		defer bRows.Close()
-		for bRows.Next() {
-			var k, n, c string
-			if err := bRows.Scan(&k, &n, &c); err == nil {
-				bibleSnippets = append(bibleSnippets, fmt.Sprintf("[%s] %s: %s", k, n, c))
-			}
-		}
-	}
-	bibleContext := ""
-	if len(bibleSnippets) > 0 {
-		bibleContext = "\n\n现有世界观设定参考：\n" + strings.Join(bibleSnippets, "\n")
-	}
-
-	systemPrompt := `你是一名拥有千万字白金作家水准的网络小说总策划与金牌主编。
-请根据作者给出的核心故事梗概、题材类型、目标总章节数和分卷规划，架构出一份高潮迭起、节奏紧凑、伏笔严密的【全书分卷大纲与章节细纲】。
-
-要求：
-1. 分卷具有明确的卷核心冲突与终极高潮事件（如：新手村破局、宗门大比、远走他域）。
-2. 每章标题具有浓郁网文张力（如：第一章：残镜与古灯、第二章：暗流涌动）。
-3. 每章梗概 (brief) 必须明确说明：【事件推动】+【冲突悬念】+【核心反转/钩子】，字数在 80~150 字之间。
-4. 必须严格返回合法 JSON，不包含任何 Markdown 代码块标签或其他说明文字，格式如下：
-{
-  "synopsis": "全书总纲提要（150字左右）",
-  "volumes": [
-    {
-      "volume_index": 1,
-      "volume_title": "第一卷：卷名",
-      "volume_brief": "本卷主线目标与高潮收尾",
-      "chapters": [
-        {
-          "title": "第1章：标题",
-          "brief": "本章核心推进事件与冲突爆发点...",
-          "hook": "章末伏笔钩子"
-        }
-      ]
-    }
-  ]
-}`
-
-	userPrompt := fmt.Sprintf("【故事核心梗概】\n%s\n\n【题材类型】\n%s\n\n【规划参数】\n目标总章节数：%d 章，分卷数：%d 卷%s",
-		premise, req.Genre, req.TargetChapters, req.VolumeCount, bibleContext,
-	)
-
-	llmReq := llm.Request{
-		Provider:  key.provider,
-		BaseURL:   key.baseURL,
-		APIKey:    key.apiKey,
-		Model:     resolveModel(req.Model),
-		Temp:      0.7,
-		MaxTokens: 4096,
-		Messages: []llm.Message{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: userPrompt},
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
-	defer cancel()
-
-	respText, err := s.llm.Chat(ctx, llmReq)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "llm_failed", fmt.Sprintf("AI 生成大纲失败: %v", err))
-		return
-	}
-
-	cleanJSON := cleanJSONMarkdown(respText)
-	var outline generateOutlineResponse
-	if err := json.Unmarshal([]byte(cleanJSON), &outline); err != nil {
-		writeError(w, http.StatusInternalServerError, "parse_failed", fmt.Sprintf("解析大纲失败: %v (原始响应: %s)", err, respText))
-		return
-	}
-
-	writeJSON(w, http.StatusOK, outline)
+	s.enqueueStudioJob(w, r, userID, projectID, job.KindOutline, in)
 }
 
 func (s *Server) handleImportOutline(w http.ResponseWriter, r *http.Request) {

@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { GitFork, Loader2, Sparkles, Wand2, X } from 'lucide-react'
 import { api, errMessage, notify } from '../api'
-import type { BranchSimulateResponse, PlotBranch } from '../types'
+import JobProgress from './JobProgress'
+import { registerJob, resultData } from '../jobs'
+import type { BranchSimulateResponse, Job, PlotBranch } from '../types'
 
 interface BranchSimulationDrawerProps {
   chapterId: string
+  projectId: string
   currentText: string
   isOpen: boolean
   onClose: () => void
@@ -13,6 +16,7 @@ interface BranchSimulationDrawerProps {
 
 export default function BranchSimulationDrawer({
   chapterId,
+  projectId,
   currentText,
   isOpen,
   onClose,
@@ -20,6 +24,8 @@ export default function BranchSimulationDrawer({
 }: BranchSimulationDrawerProps) {
   const [loading, setLoading] = useState(false)
   const [continuing, setContinuing] = useState(false)
+  const [simulateJobId, setSimulateJobId] = useState('')
+  const [continueJobId, setContinueJobId] = useState('')
   const [data, setData] = useState<BranchSimulateResponse | null>(null)
   const [error, setError] = useState('')
   const [selectedBranch, setSelectedBranch] = useState<PlotBranch | null>(null)
@@ -31,38 +37,64 @@ export default function BranchSimulationDrawer({
     setError('')
     setLoading(true)
     try {
-      const res = await api.branchSimulate(chapterId, currentText)
-      setData(res)
-      if (res.branches.length > 0) {
-        setSelectedBranch(res.branches[0])
-      }
-      notify('AI 剧情推演已生成 3 种破局走向！', 'success')
+      const { job_id } = await api.branchSimulate(chapterId, currentText)
+      registerJob({ jobId: job_id, projectId, kind: 'branch_simulate', label: '灵感推演', startedAt: Date.now() })
+      setSimulateJobId(job_id)
     } catch (err) {
       setError(errMessage(err, '推演失败'))
-    } finally {
       setLoading(false)
     }
+  }
+
+  function onSimulateDone(job: Job) {
+    setLoading(false)
+    setSimulateJobId('')
+    if (job.status === 'succeeded') {
+      const res = resultData<BranchSimulateResponse>(job.result)
+      if (res) {
+        setData(res)
+        if (res.branches.length > 0) setSelectedBranch(res.branches[0])
+        notify('AI 剧情推演已生成 3 种破局走向！', 'success')
+        return
+      }
+      setError('推演完成，但结果无法解析')
+      return
+    }
+    setError(job.error || '推演失败')
   }
 
   async function handleContinue(instruction: string) {
     setError('')
     setContinuing(true)
     try {
-      const res = await api.continueChapter(chapterId, {
+      const { job_id } = await api.continueChapter(chapterId, {
         current_text: currentText,
         instruction,
         target_runes: 600,
       })
-      if (res.continued_text) {
+      registerJob({ jobId: job_id, projectId, kind: 'chapter_continue', label: 'AI 续写', startedAt: Date.now() })
+      setContinueJobId(job_id)
+    } catch (err) {
+      setError(errMessage(err, '续写失败'))
+      setContinuing(false)
+    }
+  }
+
+  function onContinueDone(job: Job) {
+    setContinuing(false)
+    setContinueJobId('')
+    if (job.status === 'succeeded') {
+      const res = resultData<{ continued_text: string }>(job.result)
+      if (res?.continued_text) {
         onApplyContinuation(res.continued_text)
         notify('已将 AI 续写段落无缝写入正文！', 'success')
         onClose()
+        return
       }
-    } catch (err) {
-      setError(errMessage(err, '续写失败'))
-    } finally {
-      setContinuing(false)
+      setError('续写完成，但没有返回正文')
+      return
     }
+    setError(job.error || '续写失败')
   }
 
   return (
@@ -121,6 +153,38 @@ export default function BranchSimulationDrawer({
       {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '1.2rem' }}>
         {error ? <p className="error" style={{ marginBottom: '1rem' }}>{error}</p> : null}
+
+        {simulateJobId ? (
+          <div style={{ marginBottom: '1rem' }}>
+            <JobProgress
+              jobId={simulateJobId}
+              projectId={projectId}
+              autoNavigate={false}
+              onSucceeded={(_r, job) => onSimulateDone(job)}
+              onStatus={(status) => {
+                if (status === 'failed' || status === 'canceled') {
+                  onSimulateDone({ id: simulateJobId, status } as Job)
+                }
+              }}
+            />
+          </div>
+        ) : null}
+
+        {continueJobId ? (
+          <div style={{ marginBottom: '1rem' }}>
+            <JobProgress
+              jobId={continueJobId}
+              projectId={projectId}
+              autoNavigate={false}
+              onSucceeded={(_r, job) => onContinueDone(job)}
+              onStatus={(status) => {
+                if (status === 'failed' || status === 'canceled') {
+                  onContinueDone({ id: continueJobId, status } as Job)
+                }
+              }}
+            />
+          </div>
+        ) : null}
 
         {!data ? (
           <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>

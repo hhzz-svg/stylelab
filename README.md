@@ -110,9 +110,15 @@ services:
 15. **Branch simulator (灵感推演) and narration (沉浸朗读)** — on the chapter workbench. The simulator proposes plot branches from the current draft and can continue the chapter inline (the result lands in the editor unsaved, so save it deliberately). Narration reads the chapter aloud with the browser's own speech synthesis — no server, no TTS provider.
 16. **Whole-novel export** — `导出全书` on `/p/:id/write` downloads the manuscript as TXT or Markdown, named after the project.
 
-Steps 13–15 call the model **inline** rather than through a job, so those
-requests stay open for 90–120 seconds instead of returning a job id. They have
-no progress bar and cannot be cancelled; everything else long-running is a job.
+Steps 13–15 are **jobs**, like everything else long-running here. `POST` to
+those routes answers `202 {"job_id": ...}` and the client polls
+`GET /api/jobs/{id}`; they show a progress bar, can be cancelled, survive a
+refresh via the job dock, and are recovered on restart.
+
+They differ from the other job kinds in one way worth knowing: their result
+**is** the data the UI renders (the outline, the audit report, the branches),
+carried in `job.result`, rather than an id pointing at a persisted row. Nothing
+from these three is stored, so re-opening the radar costs a fresh model call.
 
 Jobs are in-process (`queued` → `running` → `succeeded` / `failed` / `canceled`). Default concurrency is 2. A process restart marks leftover `running` rows `failed` with `interrupted`.
 

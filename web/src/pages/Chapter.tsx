@@ -1328,6 +1328,7 @@ export default function ChapterPage() {
 
           <BranchSimulationDrawer
             chapterId={idOfChapter}
+            projectId={projectId}
             currentText={body}
             isOpen={branchOpen}
             onClose={() => setBranchOpen(false)}

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { ArrowDownToLine, Loader2, Sparkles, Wand2, X } from 'lucide-react'
 import { api, errMessage, notify } from '../api'
-import type { CardSummary, OutlineResponse, OutlineChapterItem } from '../types'
+import JobProgress from './JobProgress'
+import { registerJob, resultData } from '../jobs'
+import type { CardSummary, Job, OutlineResponse, OutlineChapterItem } from '../types'
 
 interface OutlinePlannerModalProps {
   projectId: string
@@ -33,6 +35,7 @@ export default function OutlinePlannerModal({
   const [volumeCount, setVolumeCount] = useState(2)
   const [cardId, setCardId] = useState('')
   const [loading, setLoading] = useState(false)
+  const [jobId, setJobId] = useState('')
   const [importing, setImporting] = useState(false)
   const [replaceExisting, setReplaceExisting] = useState(false)
   const [outline, setOutline] = useState<OutlineResponse | null>(null)
@@ -48,20 +51,36 @@ export default function OutlinePlannerModal({
     setError('')
     setLoading(true)
     try {
-      const res = await api.generateOutline(projectId, {
+      const { job_id } = await api.generateOutline(projectId, {
         premise: premise.trim(),
         genre,
         target_chapters: targetChapters,
         volume_count: volumeCount,
         card_id: cardId || undefined,
       })
-      setOutline(res)
-      notify('AI 已完成全书分卷与章节细纲架构！', 'success')
+      // Registered so the dock keeps it alive across a refresh or page change.
+      registerJob({ jobId: job_id, projectId, kind: 'outline_generate', label: '智能大纲规划', startedAt: Date.now() })
+      setJobId(job_id)
     } catch (err) {
       setError(errMessage(err, '生成大纲失败'))
-    } finally {
       setLoading(false)
     }
+  }
+
+  function onOutlineDone(job: Job) {
+    setLoading(false)
+    setJobId('')
+    if (job.status === 'succeeded') {
+      const data = resultData<OutlineResponse>(job.result)
+      if (data) {
+        setOutline(data)
+        notify('AI 已完成全书分卷与章节细纲架构！', 'success')
+        return
+      }
+      setError('大纲已生成，但结果无法解析')
+      return
+    }
+    setError(job.error || '生成大纲失败')
   }
 
   async function handleImport() {
@@ -216,6 +235,19 @@ export default function OutlinePlannerModal({
                 {loading ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
                 {loading ? 'AI 架构师正在推演全书大纲…' : '开始智能推演大纲'}
               </button>
+              {jobId ? (
+                <JobProgress
+                  jobId={jobId}
+                  projectId={projectId}
+                  autoNavigate={false}
+                  onSucceeded={(_r, job) => onOutlineDone(job)}
+                  onStatus={(status) => {
+                    if (status === 'failed' || status === 'canceled') {
+                      onOutlineDone({ id: jobId, status } as Job)
+                    }
+                  }}
+                />
+              ) : null}
             </div>
           ) : (
             <div className="stack" style={{ gap: '1.5rem' }}>

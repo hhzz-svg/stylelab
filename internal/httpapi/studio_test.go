@@ -17,7 +17,9 @@ import (
 	"stylelab/internal/config"
 	"stylelab/internal/httpapi"
 	"stylelab/internal/job"
+	"stylelab/internal/llm"
 	"stylelab/internal/store"
+	"stylelab/internal/studio"
 )
 
 // The studio handlers (outline, continuity radar, branch simulator) call the
@@ -118,11 +120,64 @@ func newStudioServer(t *testing.T) (*httptest.Server, *store.Store) {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	runner := job.NewRunner(st, 1)
+	runner := job.NewRunner(st, 2)
+	// The studio features run as jobs now, so the suite registers the real
+	// handlers; the LLM is stubbed through the BYOK base_url instead.
+	client := &llm.Client{}
+	runner.Register(job.KindOutline, studio.OutlineJobHandler(st, client, cfg.MasterKey))
+	runner.Register(job.KindContinuity, studio.ContinuityJobHandler(st, client, cfg.MasterKey))
+	runner.Register(job.KindBranch, studio.BranchJobHandler(st, client, cfg.MasterKey))
+	runner.Register(job.KindContinue, studio.ContinueJobHandler(st, client, cfg.MasterKey))
 	runner.Start(context.Background())
 	srv := httptest.NewServer(httpapi.New(st, cfg, runner))
 	t.Cleanup(srv.Close)
 	return srv, st
+}
+
+// startStudioJob posts to a studio route and returns the queued job id.
+func startStudioJob(t *testing.T, srv *httptest.Server, c *http.Client, path, payload string) string {
+	t.Helper()
+	resp := postJSON(t, c, srv.URL+path, payload)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("%s: status %d, want 202; body %s", path, resp.StatusCode, body)
+	}
+	id, _ := decodeJSON(t, resp)["job_id"].(string)
+	if id == "" {
+		t.Fatalf("%s: no job_id", path)
+	}
+	return id
+}
+
+// awaitJob polls until the job reaches a terminal state and returns the record.
+func awaitJob(t *testing.T, srv *httptest.Server, c *http.Client, jobID string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		resp := mustGet(t, c, srv.URL+"/api/jobs/"+jobID)
+		rec := decodeJSON(t, resp)
+		resp.Body.Close()
+		switch rec["status"] {
+		case "succeeded", "failed", "canceled":
+			return rec
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("job %s never reached a terminal state", jobID)
+	return nil
+}
+
+// runStudioJob posts and waits, asserting the job succeeded, then returns its
+// result payload.
+func runStudioJob(t *testing.T, srv *httptest.Server, c *http.Client, path, payload string) map[string]any {
+	t.Helper()
+	rec := awaitJob(t, srv, c, startStudioJob(t, srv, c, path, payload))
+	if rec["status"] != "succeeded" {
+		t.Fatalf("%s: job %v, error=%v", path, rec["status"], rec["error"])
+	}
+	result, _ := rec["result"].(map[string]any)
+	return result
 }
 
 func registerUser(t *testing.T, srv *httptest.Server, email string) *http.Client {
@@ -244,7 +299,7 @@ func TestStudioEndpointsSendDefaultModel(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		url     string
+		path    string
 		payload string
 		reply   string
 	}{
@@ -261,17 +316,73 @@ func TestStudioEndpointsSendDefaultModel(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fake.setReply(tc.reply)
-			resp := postJSON(t, owner, srv.URL+tc.url, tc.payload)
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				body, _ := io.ReadAll(resp.Body)
-				t.Fatalf("%s: status %d, body %s", tc.name, resp.StatusCode, body)
-			}
+			runStudioJob(t, srv, owner, tc.path, tc.payload)
 			model, _ := fake.lastCall(t)["model"].(string)
 			if strings.TrimSpace(model) == "" {
 				t.Fatalf("%s: model sent to provider was empty", tc.name)
 			}
 		})
+	}
+}
+
+// The job result carries the feature's data, not an id pointing at a row.
+func TestStudioJobResultsCarryTheirData(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "studio-results@example.com")
+	projectID := createProject(t, srv, owner, "结果载荷")
+	fake := newFakeLLM(t, validOutlineJSON(3))
+	useFakeLLM(t, srv, owner, fake)
+	chapterID := createChapter(t, srv, owner, projectID, "第一章", "开篇梗概")
+
+	outline := runStudioJob(t, srv, owner, "/api/projects/"+projectID+"/outline/generate",
+		`{"premise":"一个测试故事的梗概","target_chapters":3,"volume_count":1}`)
+	if got, _ := outline["synopsis"].(string); got != "测试梗概" {
+		t.Fatalf("outline synopsis = %q", got)
+	}
+	volumes, _ := outline["volumes"].([]any)
+	if len(volumes) != 1 {
+		t.Fatalf("volumes = %d, want 1", len(volumes))
+	}
+
+	fake.setReply(validContinuityJSON())
+	audit := runStudioJob(t, srv, owner, "/api/projects/"+projectID+"/continuity-audit", `{}`)
+	if got := intFromJSON(audit["score"]); got != 82 {
+		t.Fatalf("audit score = %d, want 82", got)
+	}
+
+	fake.setReply(validBranchJSON())
+	branch := runStudioJob(t, srv, owner, "/api/chapters/"+chapterID+"/branch-simulate",
+		`{"current_text":"正文"}`)
+	branches, _ := branch["branches"].([]any)
+	if len(branches) != 1 {
+		t.Fatalf("branches = %d, want 1", len(branches))
+	}
+
+	fake.setReply("续写出来的正文。")
+	cont := runStudioJob(t, srv, owner, "/api/chapters/"+chapterID+"/continue",
+		`{"current_text":"正文","instruction":"继续"}`)
+	if got, _ := cont["continued_text"].(string); got != "续写出来的正文。" {
+		t.Fatalf("continued_text = %q", got)
+	}
+}
+
+// A model reply that is not valid JSON must fail the job with a message, not
+// hang or succeed empty.
+func TestStudioJobSurfacesFailure(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "studio-fail@example.com")
+	projectID := createProject(t, srv, owner, "失败")
+	fake := newFakeLLM(t, "这不是 JSON")
+	useFakeLLM(t, srv, owner, fake)
+
+	rec := awaitJob(t, srv, owner, startStudioJob(t, srv, owner,
+		"/api/projects/"+projectID+"/outline/generate",
+		`{"premise":"一个测试故事的梗概","target_chapters":2}`))
+	if rec["status"] != "failed" {
+		t.Fatalf("status = %v, want failed", rec["status"])
+	}
+	if msg, _ := rec["error"].(string); msg == "" {
+		t.Fatal("failed job should carry an error message")
 	}
 }
 
@@ -289,11 +400,7 @@ func TestBranchFallsBackToChapterModel(t *testing.T) {
 		t.Fatalf("pin chapter model: %v", err)
 	}
 
-	resp := postJSON(t, owner, srv.URL+"/api/chapters/"+chapterID+"/branch-simulate", `{"current_text":"正文"}`)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("branch simulate: %d", resp.StatusCode)
-	}
+	runStudioJob(t, srv, owner, "/api/chapters/"+chapterID+"/branch-simulate", `{"current_text":"正文"}`)
 	if got, _ := fake.lastCall(t)["model"].(string); got != "gpt-4.1-mini" {
 		t.Fatalf("model = %q, want the chapter's own model", got)
 	}
@@ -313,11 +420,7 @@ func TestContinuityAuditBoundsChapterContext(t *testing.T) {
 		createChapter(t, srv, owner, projectID, fmt.Sprintf("第%d章", i), longBrief)
 	}
 
-	resp := postJSON(t, owner, srv.URL+"/api/projects/"+projectID+"/continuity-audit", `{}`)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("continuity audit: %d", resp.StatusCode)
-	}
+	runStudioJob(t, srv, owner, "/api/projects/"+projectID+"/continuity-audit", `{}`)
 
 	prompt := fake.lastUserPrompt(t)
 	if n := strings.Count(prompt, "【第"); n > 60 {
@@ -350,12 +453,8 @@ func TestBranchSimulateBoundsPriorContext(t *testing.T) {
 	}
 
 	huge := strings.Repeat("字", 5000)
-	resp := postJSON(t, owner, srv.URL+"/api/chapters/"+lastID+"/branch-simulate",
+	runStudioJob(t, srv, owner, "/api/chapters/"+lastID+"/branch-simulate",
 		fmt.Sprintf(`{"current_text":%q}`, huge))
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("branch simulate: %d", resp.StatusCode)
-	}
 
 	prompt := fake.lastUserPrompt(t)
 	if n := strings.Count(prompt, "章的摘要"); n > 3 {
@@ -652,15 +751,53 @@ func TestFakeLLMIsActuallyUsed(t *testing.T) {
 	createChapter(t, srv, owner, projectID, "第一章", "梗概")
 
 	start := time.Now()
-	resp := postJSON(t, owner, srv.URL+"/api/projects/"+projectID+"/continuity-audit", `{}`)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("continuity audit: %d", resp.StatusCode)
-	}
+	runStudioJob(t, srv, owner, "/api/projects/"+projectID+"/continuity-audit", `{}`)
 	if fake.callCount() == 0 {
 		t.Fatal("handler did not call the fake LLM; BYOK base_url is not being honoured")
 	}
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Fatalf("request took %v, suspiciously slow for a local fake", elapsed)
+	}
+}
+
+// Cancellation is the main thing the job conversion buys over the old blocking
+// request: a 100-second audit can now be called off.
+func TestStudioJobCanBeCanceled(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "studio-cancel@example.com")
+	projectID := createProject(t, srv, owner, "可取消")
+	createChapter(t, srv, owner, projectID, "第一章", "梗概")
+
+	// A fake that blocks until released, so the job is reliably in flight.
+	release := make(chan struct{})
+	blocking := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]string{"content": validContinuityJSON()}}},
+		})
+	}))
+	defer blocking.Close()
+	defer close(release)
+
+	resp := putJSON(t, owner, srv.URL+"/api/me/llm-keys",
+		fmt.Sprintf(`{"provider":"chat","base_url":%q,"api_key":"sk-test-abcd1234"}`, blocking.URL))
+	resp.Body.Close()
+
+	jobID := startStudioJob(t, srv, owner, "/api/projects/"+projectID+"/continuity-audit", `{}`)
+
+	cancel := postJSON(t, owner, srv.URL+"/api/jobs/"+jobID+"/cancel", ``)
+	status := cancel.StatusCode
+	cancel.Body.Close()
+	if status != http.StatusNoContent {
+		t.Fatalf("cancel status = %d, want 204", status)
+	}
+
+	rec := awaitJob(t, srv, owner, jobID)
+	if rec["status"] != "canceled" && rec["status"] != "failed" {
+		t.Fatalf("status = %v, want canceled", rec["status"])
 	}
 }

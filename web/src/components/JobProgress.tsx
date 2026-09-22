@@ -2,14 +2,16 @@ import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { resultFromJob, resultRoute } from '../jobs'
 import { useJobPoll } from '../hooks'
-import type { JobResult, JobStatus } from '../types'
+import type { Job, JobResult, JobStatus } from '../types'
 
 type Props = {
   jobId: string
   projectId?: string
   onStatus?: (status: JobStatus) => void
   autoNavigate?: boolean
-  onSucceeded?: (result: JobResult) => void
+  /** `job` is passed too: the studio kinds return their data as the result
+   *  rather than an id, so callers read job.result with their own type. */
+  onSucceeded?: (result: JobResult, job: Job) => void
   onPollError?: (error: string) => void
 }
 
@@ -43,7 +45,7 @@ export default function JobProgress({
     if (job?.status !== 'succeeded' || handled.current === job.id) return
     handled.current = job.id
     const result = resultFromJob(job.result)
-    onSucceeded?.(result)
+    onSucceeded?.(result, job)
     if (!autoNavigate || !projectId) return
     const to = resultRoute(projectId, result)
     if (to) navigate(to)

@@ -15,6 +15,12 @@ const (
 	KindSample    Kind = "sample"
 	KindWrite     Kind = "write"
 	KindBibleSync Kind = "bible_sync"
+	// The studio kinds differ from the others: their result is the data the UI
+	// renders, not an id pointing at a persisted row.
+	KindOutline    Kind = "outline_generate"
+	KindContinuity Kind = "continuity_audit"
+	KindBranch     Kind = "branch_simulate"
+	KindContinue   Kind = "chapter_continue"
 )
 
 type Status string

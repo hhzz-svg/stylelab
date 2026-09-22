@@ -1,9 +1,13 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"path"
 	"strings"
+
+	"stylelab/internal/job"
 )
 
 // defaultLLMModel mirrors the per-package defaults used by the job-backed
@@ -93,4 +97,40 @@ func contentDispositionAttachment(filename string) string {
 		fallback = "novel" + path.Ext(filename)
 	}
 	return fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", fallback, rfc5987Encode(filename))
+}
+
+// trimInvalid turns the domain packages' "invalid: ..." error convention into
+// a bare user-facing message.
+func trimInvalid(err error) string {
+	msg := err.Error()
+	if rest, ok := strings.CutPrefix(msg, "invalid:"); ok {
+		return strings.TrimSpace(rest)
+	}
+	return msg
+}
+
+// enqueueStudioJob marshals a studio input and queues it, answering 202 with
+// the job id. The studio features return their data as the job result, so the
+// client polls GET /api/jobs/{id} and reads Result rather than following a
+// route to a persisted row.
+func (s *Server) enqueueStudioJob(
+	w http.ResponseWriter, r *http.Request,
+	userID, projectID string, kind job.Kind, in any,
+) {
+	payload, err := json.Marshal(in)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+	jobID, err := s.jobs.Enqueue(r.Context(), job.Record{
+		UserID:    userID,
+		ProjectID: projectID,
+		Kind:      kind,
+		Payload:   payload,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
 }

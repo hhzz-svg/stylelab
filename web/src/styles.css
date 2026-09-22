@@ -430,13 +430,19 @@ button {
 .page {
   max-width: 1200px;
   margin: 0 auto;
-  animation: pageRise 0.45s var(--ease) both;
+  /* No fill-mode: the final keyframe equals the element's natural state, and a
+     lingering transform would make .page the containing block for every
+     position:fixed overlay rendered inside it. */
+  animation: pageRise 0.45s var(--ease);
 }
 
 .page-wide {
   max-width: 1440px;
   margin: 0 auto;
-  animation: pageRise 0.45s var(--ease) both;
+  /* No fill-mode: the final keyframe equals the element's natural state, and a
+     lingering transform would make .page the containing block for every
+     position:fixed overlay rendered inside it. */
+  animation: pageRise 0.45s var(--ease);
 }
 
 @keyframes pageRise {
@@ -515,7 +521,8 @@ button {
   color: var(--gold);
 }
 
-.crumb span.sep {
+.crumb span.sep,
+.crumb .crumb-sep {
   opacity: 0.4;
   font-size: 0.75rem;
 }
@@ -1551,7 +1558,8 @@ input[type="range"]::-moz-range-thumb {
   color: var(--gold-hi);
 }
 
-.dock-track {
+.dock-track,
+.job-track {
   height: 4px;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
@@ -1559,7 +1567,8 @@ input[type="range"]::-moz-range-thumb {
   margin-top: 0.5rem;
 }
 
-.dock-fill {
+.dock-fill,
+.job-fill {
   height: 100%;
   background: var(--gold-gradient);
   box-shadow: 0 0 8px var(--gold-glow);
@@ -1619,7 +1628,8 @@ input[type="range"]::-moz-range-thumb {
   text-decoration: underline;
 }
 
-.toast-x {
+.toast-x,
+.dock-x {
   color: var(--ink-faint);
   font-size: 1.1rem;
   padding: 0 0.2rem;
@@ -2513,7 +2523,9 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 16px var(--violet-glow);
 }
 
-.fuse-mixer-card {
+.fuse-mixer-card,
+.fuse-control-panel,
+.fuse-slot-panel {
   background: var(--panel);
   border: 1px solid var(--line-glass);
   border-radius: var(--radius-xl);
@@ -2560,7 +2572,8 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(255, 255, 255, 0.05);
 }
 
-.fuse-ignite-bar {
+.fuse-ignite-bar,
+.fuse-command-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3724,4 +3737,541 @@ input[type="range"]::-moz-range-thumb {
   .modal-panel {
     animation: none;
   }
+}
+
+/* ==========================================================================
+   RECONCILIATION LAYER
+   The component tree was rewritten in 8920c32 without styles.css following it,
+   which left 58 class names with no rule at all. Most are handled by widening
+   an existing selector (see .dock-track/.job-track, .fuse-mixer-card/
+   .fuse-control-panel, .crumb span.sep/.crumb-sep above). What remains needs
+   real rules, and lives here.
+   ========================================================================== */
+
+/* --- Async progress -------------------------------------------------------
+   Wraps the percentage text and the bar. The <p> would otherwise take the UA's
+   1em margins and push the bar around. */
+.job-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.job-bar p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+/* Submitted but no progress reported yet: a fixed-width sliver that travels,
+   since there is no percentage to show. */
+.job-fill.indet {
+  width: 35%;
+  animation: indeterminate 1.1s var(--ease) infinite;
+}
+
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(330%);
+  }
+}
+
+/* --- Screen-reader-only ---------------------------------------------------
+   Without this the six labels in Bible.tsx and Cards.tsx render as visible
+   text, and because the global `label` rule is a flex column they also add a
+   row that knocks .search-field's absolutely positioned icon out of line. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Bare icon buttons ----------------------------------------------------
+   The global `button` reset leaves the icon visible but gives it no hit area.
+   Sized a little tighter than .btn.icon-only, which is a full control-height
+   button; these sit inside drawer heads and toolbars. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  color: var(--ink-faint);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+
+.icon-btn.sm {
+  width: 1.7rem;
+  height: 1.7rem;
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --- Ring spinner ---------------------------------------------------------
+   InlineAIMenu sets borderWidth inline but no border-style, so nothing painted
+   before this rule existed. `spin` already exists further down the file. */
+.spinner {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  border: 2px solid var(--line-glass);
+  border-top-color: var(--gold-hi);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.spinner.sm {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-width: 1.5px;
+}
+
+/* --- Loading skeleton -----------------------------------------------------
+   Skeleton.tsx supplies height/width inline, so the box already occupied the
+   right space -- but with no background it read as a blank hole. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.09) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--radius);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* --- Tooltip --------------------------------------------------------------
+   Positioning stays inline in Tooltip.tsx (and wins anyway); this only adds
+   the bubble the floating text was missing. */
+.tooltip-bubble {
+  background: rgba(14, 20, 31, 0.97);
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.65rem;
+  font-size: 0.78rem;
+  color: var(--ink);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
+/* --- Offline banner -------------------------------------------------------
+   Was an in-flow block, so losing the connection pushed the whole app shell
+   down. Above .toast-stack (110) so it is never covered. */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 120;
+  padding: 0.55rem 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cinnabar-hi);
+  background: rgba(224, 83, 60, 0.16);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 107, 74, 0.35);
+}
+
+/* --- Toast / dock text ---------------------------------------------------- */
+.toast-msg {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.dock-stage {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+}
+
+/* The entity drawer has always referenced this; it was never defined. */
+@keyframes slideLeft {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* --- Card deck drawer -----------------------------------------------------
+   CardDeckDrawer had no rules at all, so .deck-drawer rendered as an ordinary
+   block at the foot of the page and .deck-scrim -- an empty <button> -- was
+   zero-sized, which meant click-outside-to-close did nothing. Mirrors the
+   .entity-drawer-wrap / .entity-drawer family. */
+.deck-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  width: 100%;
+  background: rgba(4, 7, 13, 0.5);
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.2s var(--ease);
+}
+
+.deck-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 96;
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 0 1.6rem 1.6rem;
+  overflow-y: auto;
+  background: linear-gradient(145deg, rgba(16, 22, 34, 0.98) 0%, rgba(10, 14, 22, 0.98) 100%);
+  border-left: 1px solid var(--line-hi);
+  box-shadow: var(--shadow-lg), 0 0 45px rgba(0, 0, 0, 0.8);
+  animation: slideLeft 0.25s var(--ease);
+}
+
+.deck-drawer-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.4rem 0 1rem;
+  background: inherit;
+  border-bottom: 1px solid var(--line-glass);
+}
+
+.deck-drawer-head h2 {
+  margin: 0.3rem 0 0;
+  font-size: 1.15rem;
+}
+
+.deck-drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.9rem;
+}
+
+@media (max-width: 560px) {
+  .deck-drawer {
+    max-width: none;
+  }
+}
+
+/* --- Fusion bench ---------------------------------------------------------
+   The panel chrome and command bar reuse .fuse-mixer-card / .fuse-ignite-bar
+   (see the widened selectors above). What is left is the page's own layout:
+   the two columns, the slot corner badges, and the per-dimension weight rows,
+   none of which had a rule. */
+.fuse-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.fuse-slot.filled {
+  position: relative;
+}
+
+.fuse-slot-index {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  background: rgba(7, 10, 15, 0.8);
+  padding: 0.12rem 0.4rem;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+
+.fuse-slot-remove {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: var(--radius-sm);
+  color: var(--ink-faint);
+  background: rgba(7, 10, 15, 0.7);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.fuse-slot-remove:hover {
+  color: var(--cinnabar-hi);
+  background: rgba(224, 83, 60, 0.18);
+}
+
+.blend-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.blend-focus {
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  background: rgba(7, 10, 15, 0.45);
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius-lg);
+}
+
+.blend-focus-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.blend-focus-head h3 {
+  margin: 0.2rem 0 0;
+  font-size: 1rem;
+}
+
+.blend-focus-head strong {
+  font-family: var(--mono);
+  font-size: 1.1rem;
+}
+
+.blend-focus-head strong small {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+.contribution-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* Four children -- name, participate toggle, slider, readout -- that piled up
+   unreadably without a track to sit in. */
+.contribution-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(110px, 1.3fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+  transition: opacity var(--dur) var(--ease);
+}
+
+.contribution-row.muted-row {
+  opacity: 0.45;
+}
+
+.contribution-card {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.contribution-card strong {
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contribution-range {
+  width: 100%;
+}
+
+.contribution-row output {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  min-width: 3.2rem;
+  text-align: right;
+}
+
+/* A one-letter kind badge; .style-card-kind shrunk down. */
+.mini-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  background: rgba(247, 203, 104, 0.12);
+  color: var(--gold-hi);
+  border: 1px solid rgba(247, 203, 104, 0.25);
+}
+
+.fuse-preview {
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  background: rgba(7, 10, 15, 0.45);
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius-lg);
+}
+
+.fusion-empty {
+  color: var(--ink-faint);
+  font-size: 0.88rem;
+  text-align: center;
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--line-glass);
+  border-radius: var(--radius);
+}
+
+.fusion-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+@media (max-width: 1000px) {
+  .fuse-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .contribution-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0.5rem;
+  }
+
+  .contribution-range {
+    grid-column: 1 / -1;
+  }
+}
+
+/* --- Remaining layout hooks ----------------------------------------------
+   Each of these wraps children that are themselves styled; what was missing
+   was only the container's own flex/grid, so buttons and text were being laid
+   out by whitespace. */
+
+/* Used by both the extract result panel and the fusion result panel. */
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.result-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+}
+
+/* A <details> that was rendering with the UA triangle and no chrome.
+   Follows .chapter-setup, which styles the same pattern. */
+.advanced-settings {
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.advanced-settings summary {
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  user-select: none;
+}
+
+.advanced-settings summary:hover {
+  color: var(--ink);
+}
+
+.advanced-settings > *:not(summary) {
+  padding: 0 1rem 1rem;
+}
+
+/* Chapter header: the copy column has to be allowed to shrink, or a long
+   title squeezes the ambient-sound controls beside it. */
+.chapter-head-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.chapter-head-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+/* Two variants: a bare <p class="muted"> and a <div> holding an error plus a
+   retry button. Only the second needs the row. */
+div.chapter-neighbor-state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.bible-empty-hint {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--line-glass);
+  border-radius: var(--radius-lg);
+  margin: 1.2rem 0;
+}
+
+/* In-grid empty states should not be as tall as a full-page one. */
+.empty-state.compact {
+  padding: 1.75rem 1.25rem;
+  margin: 0;
+}
+
+/* Selected prose keeps its paragraph breaks in the diff columns; without this
+   a multi-paragraph selection collapses into one run-on block. */
+.diff-content {
+  white-space: pre-wrap;
 }

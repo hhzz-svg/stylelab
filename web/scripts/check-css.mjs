@@ -94,9 +94,11 @@ const missingClasses = [...usedClasses.keys()]
 if (process.argv.includes('--write-baseline')) {
   const baseline = {
     comment:
-      'Class names used in src/ with no rule in styles.css, as of the commit that added this check. ' +
-      'These are pre-existing gaps, not approved ones -- the list must only ever shrink. ' +
-      'Regenerate with: npm run lint:css -- --write-baseline',
+      'Class names used in src/ that have no rule in styles.css. Each remaining entry has been ' +
+      'reviewed and is a semantic or JS hook whose children/element are already styled (SVG ' +
+      'grouping, ref targets, inline-styled elements, modifiers whose base class carries the look) ' +
+      '-- inventing decorative CSS for them would be worse than leaving them. The list must only ' +
+      'ever shrink. Regenerate with: npm run lint:css -- --write-baseline',
     classes: missingClasses,
   }
   writeFileSync(baselinePath, JSON.stringify(baseline, null, 2) + '\n')

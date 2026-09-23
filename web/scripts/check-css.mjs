@@ -9,9 +9,16 @@
 //      Without position:fixed the two studio modals rendered as ordinary blocks
 //      at the foot of the page, and every spinner sat frozen.
 //
-// Scope: this only sees STATIC class names. A className built by string
-// concatenation or from a variable is invisible here, so a clean run means
-// "no statically detectable gap", not "every class is styled".
+// Scope: static class names, plus the string literals inside a className={...}
+// expression -- ternaries, `+` concatenation, template-literal ${...} parts and
+// [..].join(' ') arrays. Operands of a comparison (mode === 'custom') are
+// dropped first, since they are values, not class names. A class name held in
+// a variable or computed at runtime is still invisible, so a clean run means
+// "no detectable gap", not "every class is styled".
+//
+// Also out of reach: context. A class defined in one compound selector counts
+// as defined everywhere, so `.on` passes because .dim-pill.on exists even where
+// it is used on a .btn that has no .on rule.
 //
 // Usage: node scripts/check-css.mjs [--write-baseline]
 
@@ -60,6 +67,20 @@ function record(map, key, file) {
   map.get(key).add(relative(webRoot, file))
 }
 
+// A comparison operand is a value, not a class: in `mode === 'custom' ? 'on' : ''`
+// only 'on' can end up in the class list.
+const COMPARISON_OPERAND = /(?:[=!]==?\s*(['"])[^'"]*\1)|(?:(['"])[^'"]*\2\s*[=!]==?)/g
+const CLASS_TOKEN = /^-?[A-Za-z_][\w-]*$/
+
+function harvestLiterals(expr, file) {
+  const cleaned = expr.replace(COMPARISON_OPERAND, ' ')
+  for (const m of cleaned.matchAll(/'([^'`]*)'|"([^"`]*)"/g)) {
+    for (const cls of (m[1] ?? m[2]).split(/\s+/)) {
+      if (CLASS_TOKEN.test(cls)) record(usedClasses, cls, file)
+    }
+  }
+}
+
 for (const file of [...files, stylesPath]) {
   const text = readFileSync(file, 'utf8')
 
@@ -73,10 +94,27 @@ for (const file of [...files, stylesPath]) {
   for (const m of text.matchAll(/className\s*=\s*"([^"{}]*)"/g)) {
     for (const cls of m[1].split(/\s+/).filter(Boolean)) record(usedClasses, cls, file)
   }
-  // className={`a ${cond} c`} -- only the literal segments are knowable
-  for (const m of text.matchAll(/className\s*=\s*\{`([^`]*)`\}/g)) {
-    const literal = m[1].replace(/\$\{[^}]*\}/g, ' ')
-    for (const cls of literal.split(/\s+/).filter(Boolean)) record(usedClasses, cls, file)
+  // className={...}: take the whole expression by brace matching.
+  for (const m of text.matchAll(/className\s*=\s*\{/g)) {
+    const start = m.index + m[0].length
+    let i = start
+    let depth = 1
+    while (i < text.length && depth > 0) {
+      if (text[i] === '{') depth++
+      else if (text[i] === '}') depth--
+      i++
+    }
+    const expr = text.slice(start, i - 1).trim()
+    if (expr.startsWith('`')) {
+      // Template literal: static segments are class names as written; each
+      // ${...} is itself an expression that may yield one.
+      const body = expr.slice(1, expr.lastIndexOf('`'))
+      const staticPart = body.replace(/\$\{[^}]*\}/g, ' ')
+      for (const cls of staticPart.split(/\s+/).filter(Boolean)) record(usedClasses, cls, file)
+      for (const inner of body.matchAll(/\$\{([^}]*)\}/g)) harvestLiterals(inner[1], file)
+    } else {
+      harvestLiterals(expr, file)
+    }
   }
 }
 

@@ -3,11 +3,13 @@
   "classes": [
     "alignment-bar-wrap",
     "asset-shelf",
+    "batch-selected",
     "bible-editor-form",
     "card-mold",
     "chapter-page",
     "chapter-page-head",
     "dimension-panel",
+    "empty",
     "graph-edges-layer",
     "graph-nodes-layer",
     "ingredient-tray",

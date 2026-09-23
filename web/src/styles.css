@@ -4275,3 +4275,72 @@ div.chapter-neighbor-state {
 .diff-content {
   white-space: pre-wrap;
 }
+
+/* --- State classes set from expressions -----------------------------------
+   These are toggled by className={cond ? 'x' : ''} and similar, which the CSS
+   lint could not see until it learned to read those expressions. Each is a
+   signal the user is meant to read at a glance. */
+
+/* A card dragged over a fusion slot: the drop target has to announce itself. */
+.fuse-slot.drop-over {
+  border-style: solid;
+  border-color: var(--gold-hi);
+  background: var(--gold-faint);
+  box-shadow: 0 0 0 1px var(--gold-hi), var(--shadow-glow);
+}
+
+/* The per-dimension weight total is the "can I submit yet" signal. */
+.blend-focus-head strong.ok {
+  color: var(--jade-hi);
+}
+
+.blend-focus-head strong.warn {
+  color: var(--cinnabar-hi);
+}
+
+/* Selected sample text over the 100,000-rune limit. */
+.danger-text {
+  color: var(--cinnabar-hi);
+  font-weight: 700;
+}
+
+/* A failed job in the dock must not look like one still running. */
+.dock-card.failed {
+  border-color: rgba(255, 107, 74, 0.45);
+  box-shadow: var(--shadow-lg), 0 0 20px var(--cinnabar-faint);
+}
+
+.dock-card.failed .dock-fill {
+  background: var(--cinnabar-gradient);
+  box-shadow: 0 0 8px var(--cinnabar-glow);
+}
+
+/* The active blend recipe. `.on` already existed for .dim-pill and
+   .version-chip, which is why the lint counted it as defined -- but nothing
+   styled it on a .btn, so the chosen recipe looked like the others. */
+.btn.secondary.on {
+  color: var(--gold-hi);
+  border-color: var(--line-hi);
+  background: var(--gold-faint);
+}
+
+/* "自定义" is a status tag, not a button: it lights up when the weights no
+   longer match a preset. */
+.preset-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 1.9rem;
+  padding: 0 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  border: 1px dashed var(--line-glass);
+  border-radius: var(--radius-sm);
+}
+
+.preset-tag.on {
+  color: var(--gold-hi);
+  border-style: solid;
+  border-color: var(--line-hi);
+  background: var(--gold-faint);
+}

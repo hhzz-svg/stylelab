@@ -338,3 +338,35 @@ The three gaps left at the end of the previous entry, each its own commit.
 ### Known gaps
 - Saved results live and die with the `jobs` table. Nothing prunes it today; if something ever does, it must keep the newest succeeded job per kind.
 - Queued jobs are claimed with `ORDER BY created_at` over the same RFC3339Nano strings, so two jobs queued in the same second can run out of order. Out of scope here; raised as a separate task.
+
+## 2026-09-23 - Task: "Is it complete enough?" — close the remaining gaps
+
+### What was done
+Answered "not yet" with a list, then closed the four items in it.
+
+**Relationship-graph extraction is a job with a bounded prompt.** It was the last model call still made inside an HTTP request, and it had every problem the other four studio features had before they were converted: the browser's 30 s timeout, and a prompt with no ceiling — every chapter with 1,500 runes of body, so a 60-chapter book sent ~90,000 runes. It now lives in `internal/studio/graph.go` as job kind `graph_extract`: first 30 chapters × 600 runes plus 40 bible entries, with a note to the model when it saw part of the book (measured: 18,884 runes on 60 chapters). Saving is one transaction with every error checked (it used to write row by row ignoring errors), edges are de-duplicated against the existing graph (a re-run used to double every relation), and a field the model returns empty no longer wipes what the author typed. The page registers the job with the dock, shows progress, and re-attaches to a running extraction after a refresh so the graph still reloads when it lands.
+
+**Tests for the 9 routes that had none** — the whole graph API, `POST /api/chapters/{id}/write`, `manuscript.md` and the job SSE stream. 56 routes, 0 untested (counted by matching route patterns against test URLs; the same script reports the original 9 with the new files excluded). As with every earlier batch of untested routes, they had bugs:
+- Updating a graph node or edge by an id that is not in the project answered 200 and changed nothing; now 404.
+- Editing a node's profile reset its position: the drawer sends no `x`/`y`, and the update wrote 0. Omitted coordinates now keep their stored value.
+- Deleting a node discarded the error from deleting its edges and was not atomic; it is one transaction now.
+- `json.Marshal(nil map)` is `"null"`, not nil, so a node saved without details stored `null`; now `{}`.
+- Graph GET did not check `rows.Err()`.
+
+**Edge endpoints are validated.** Both ends must be nodes of this project and different from each other; the table has no foreign key, so an edge could point at nothing or at another project's node id.
+
+**The job queue runs jobs in the order they were queued** (`ORDER BY rowid`, not the RFC3339Nano `created_at` strings, which trim trailing zeros and mis-sort). Reproduced with a test first.
+
+### Also fixed
+- **Every toast in the app appeared twice.** `ToastHost` was mounted both in `main.tsx` and inside `App`. Found by counting `.toast` elements in the browser run.
+- `internal/job` tests failed about 1 run in 200 with "TempDir RemoveAll: directory not empty": cancelling the runner did not wait for its workers, so a worker could still be writing a job's final status while the store closed. `Runner.Wait()` added; the job tests and the studio test server stop the runner and wait before the store closes. 500 consecutive runs pass.
+
+### Testing
+- `gofmt`, `go vet ./...`, `go test ./... -count=1` clean; `npm run lint:css`, `npm run build`, `web/dist` committed.
+- Browser (Playwright, stub LLM that logs each prompt, 60 chapters × 2,000 runes): extract answers 202; the progress bar moves; after a mid-job reload both the page and the dock hold the job; the three nodes render without a reload; one toast from the dock and one with the counts ("读取了前 30 / 60 章"); a second run updates 3 nodes and adds 0 edges.
+
+### Known gaps
+- The frontend still has no automated tests; the browser checks above are hand-run scripts that CI does not repeat.
+- Nothing has been run against a real model provider; the LLM is stubbed through the BYOK `base_url` everywhere.
+- Rewriting a card's dimension summaries is still an inline model call (short prompt, only the changed dimensions).
+- A completed studio job shows two toasts when its page is open — the dock's generic one and the page's detailed one. This predates this round and applies to all studio features.

@@ -20,7 +20,6 @@ import type { Me } from './types'
 import HelpDialog from './components/HelpDialog'
 import JobDock from './components/JobDock'
 import CommandPalette from './components/CommandPalette'
-import ToastHost from './components/ToastHost'
 import Login from './pages/Login'
 import Projects from './pages/Projects'
 import ProjectHome from './pages/ProjectHome'
@@ -303,7 +302,6 @@ export default function App() {
   return (
     <>
       <AuthContext.Provider value={{ me, setMe }}>
-        <ToastHost />
         {!ready ? (
           <div className="gate">
             <div className="gate-card">

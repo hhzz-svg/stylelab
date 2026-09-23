@@ -21,7 +21,7 @@ func TestRunnerTwoJobsSucceed(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	t.Cleanup(func() { cancel(); r.Wait() })
 
 	id1, err := r.Enqueue(ctx, job.Record{
 		UserID:    uid,
@@ -65,7 +65,7 @@ func TestRunnerCancelBlockingHandler(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	t.Cleanup(func() { cancel(); r.Wait() })
 
 	id, err := r.Enqueue(ctx, job.Record{
 		UserID:    uid,
@@ -214,7 +214,7 @@ func TestRunnerClaimsInEnqueueOrder(t *testing.T) {
 		return json.RawMessage(`{}`), nil
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	t.Cleanup(func() { cancel(); r.Wait() })
 	r.Start(ctx)
 
 	for i, want := range queued {

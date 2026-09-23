@@ -22,6 +22,7 @@ type Runner struct {
 	canceled map[string]struct{}
 	wake     chan struct{}
 	start    sync.Once
+	workers  sync.WaitGroup
 }
 
 func NewRunner(st *store.Store, concurrency int) *Runner {
@@ -47,9 +48,21 @@ func (r *Runner) Register(k Kind, h Handler) {
 func (r *Runner) Start(ctx context.Context) {
 	r.start.Do(func() {
 		for i := 0; i < r.concurrency; i++ {
-			go r.worker(ctx)
+			r.workers.Add(1)
+			go func() {
+				defer r.workers.Done()
+				r.worker(ctx)
+			}()
 		}
 	})
+}
+
+// Wait blocks until every worker has returned, which they do once the
+// context passed to Start is canceled. A worker that was running a job
+// records its final status first, so closing the store before Wait returns
+// races that write.
+func (r *Runner) Wait() {
+	r.workers.Wait()
 }
 
 func (r *Runner) Enqueue(ctx context.Context, rec Record) (string, error) {

@@ -355,9 +355,10 @@ export const api = {
       method: 'DELETE',
     }),
 
-  extractGraph: (projectId: string) =>
-    request<GraphData>(`/api/projects/${projectId}/graph/extract`, {
+  extractGraph: (projectId: string, model?: string) =>
+    request<{ job_id: string }>(`/api/projects/${projectId}/graph/extract`, {
       method: 'POST',
+      body: JSON.stringify({ model }),
     }),
 
   generateOutline: (

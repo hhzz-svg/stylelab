@@ -20,6 +20,7 @@ import (
 	"stylelab/internal/llm"
 	"stylelab/internal/store"
 	"stylelab/internal/studio"
+	"stylelab/internal/write"
 )
 
 // The studio features (outline, continuity radar, branch simulator, continue)
@@ -33,6 +34,9 @@ type fakeLLM struct {
 	mu    sync.Mutex
 	calls []map[string]any
 	reply string
+	// hold, when set, parks every request until it is closed, so a test can
+	// watch a job while it is still running.
+	hold chan struct{}
 }
 
 func newFakeLLM(t *testing.T, reply string) *fakeLLM {
@@ -46,7 +50,11 @@ func newFakeLLM(t *testing.T, reply string) *fakeLLM {
 		f.mu.Lock()
 		f.calls = append(f.calls, body)
 		current := f.reply
+		hold := f.hold
 		f.mu.Unlock()
+		if hold != nil {
+			<-hold
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -85,23 +93,38 @@ func (f *fakeLLM) lastCall(t *testing.T) map[string]any {
 // lastUserPrompt returns the content of the last user message sent to the model.
 func (f *fakeLLM) lastUserPrompt(t *testing.T) string {
 	t.Helper()
-	body := f.lastCall(t)
-	msgs, ok := body["messages"].([]any)
+	s, ok := userPrompt(f.lastCall(t))
 	if !ok {
-		t.Fatalf("fake llm: messages missing, got %T", body["messages"])
+		t.Fatal("fake llm: no user message")
 	}
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m, ok := msgs[i].(map[string]any)
-		if !ok {
-			continue
-		}
-		if m["role"] == "user" {
-			s, _ := m["content"].(string)
+	return s
+}
+
+// lastUserPromptContaining returns the newest user prompt that contains
+// marker, for jobs that make several model calls.
+func (f *fakeLLM) lastUserPromptContaining(t *testing.T, marker string) string {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.calls) - 1; i >= 0; i-- {
+		if s, ok := userPrompt(f.calls[i]); ok && strings.Contains(s, marker) {
 			return s
 		}
 	}
-	t.Fatal("fake llm: no user message")
+	t.Fatalf("fake llm: no user prompt containing %q", marker)
 	return ""
+}
+
+func userPrompt(body map[string]any) (string, bool) {
+	msgs, _ := body["messages"].([]any)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m, ok := msgs[i].(map[string]any)
+		if ok && m["role"] == "user" {
+			s, _ := m["content"].(string)
+			return s, true
+		}
+	}
+	return "", false
 }
 
 func newStudioServer(t *testing.T) (*httptest.Server, *store.Store) {
@@ -127,7 +150,13 @@ func newStudioServer(t *testing.T) (*httptest.Server, *store.Store) {
 	runner.Register(job.KindContinuity, studio.ContinuityJobHandler(st, client, cfg.MasterKey))
 	runner.Register(job.KindBranch, studio.BranchJobHandler(st, client, cfg.MasterKey))
 	runner.Register(job.KindContinue, studio.ContinueJobHandler(st, client, cfg.MasterKey))
-	runner.Start(context.Background())
+	runner.Register(job.KindGraphExtract, studio.GraphJobHandler(st, client, cfg.MasterKey))
+	runner.Register(job.KindWrite, write.JobHandler(st, client, cfg.MasterKey))
+	ctx, cancel := context.WithCancel(context.Background())
+	runner.Start(ctx)
+	// Runs before the store closes: stop the workers and let a job that is
+	// finishing write its status first.
+	t.Cleanup(func() { cancel(); runner.Wait() })
 	srv := httptest.NewServer(httpapi.New(st, cfg, runner))
 	t.Cleanup(srv.Close)
 	return srv, st

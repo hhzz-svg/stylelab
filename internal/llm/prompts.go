@@ -224,3 +224,34 @@ func ChapterContinueSystem() string {
 2. 保持沉浸感与节奏张力，行文风格考究，段落分明。
 3. 严格只输出续写的正文内容，严禁输出任何前言、总结或括号说明。`)
 }
+
+func GraphExtractSystem() string {
+	return strings.TrimSpace(`
+你是一名资深网络小说架构师与世界观实体图谱分析专家。
+请仔细阅读提供的小说章节节选和世界设定，抽离出关键的【实体节点】（人物、门派势力、法宝神器、关键地理）以及彼此之间的【关系网络】（盟友、宿敌、师徒、暗恋、君臣、道侣、同门、死敌等）。
+
+必须严格返回 JSON 格式，不要包含任何 markdown 标记或附加说明，格式如下：
+{
+  "nodes": [
+    {
+      "name": "实体名称（如：韩立、落云宗、掌天瓶）",
+      "kind": "character | faction | artifact | location",
+      "faction": "所属势力/阵营名称（如：落云宗、魔道六宗、散修）",
+      "summary": "一句话核心身份/定位与特征",
+      "details": {
+        "realm": "当前境界/等级（若适用）",
+        "temperament": "性格/脾气与为人准则",
+        "secrets": "秘密/动机/底牌"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "源实体名称（必须与 nodes 中的 name 一致）",
+      "target": "目标实体名称（必须与 nodes 中的 name 一致）",
+      "relation": "关系简短名称（如：盟友 / 宿敌 / 师徒 / 暗恋 / 主仆 / 仇怨）",
+      "description": "详细关系渊源或冲突焦点"
+    }
+  ]
+}`)
+}

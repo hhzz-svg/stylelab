@@ -56,6 +56,7 @@ func main() {
 	runner.Register(job.KindContinuity, studio.ContinuityJobHandler(st, llmClient, cfg.MasterKey))
 	runner.Register(job.KindBranch, studio.BranchJobHandler(st, llmClient, cfg.MasterKey))
 	runner.Register(job.KindContinue, studio.ContinueJobHandler(st, llmClient, cfg.MasterKey))
+	runner.Register(job.KindGraphExtract, studio.GraphJobHandler(st, llmClient, cfg.MasterKey))
 	if _, err := runner.RecoverInterrupted(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

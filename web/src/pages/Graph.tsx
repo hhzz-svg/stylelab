@@ -10,12 +10,14 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import { useParams } from 'react-router-dom'
-import { APIError, api, notify } from '../api'
+import { APIError, api, errMessage, notify } from '../api'
+import JobProgress from '../components/JobProgress'
+import { listJobs, registerJob, resultData } from '../jobs'
 import Crumb from '../components/Crumb'
 import EntityDrawer from '../components/EntityDrawer'
 import Skeleton from '../components/Skeleton'
 import { usePageTitle } from '../hooks'
-import type { GraphData, GraphNode, GraphNodeKind } from '../types'
+import type { GraphData, GraphExtractResult, GraphNode, GraphNodeKind, Job } from '../types'
 
 // 颜色映射池
 const FACTION_COLORS = [
@@ -62,6 +64,7 @@ export default function Graph() {
   const [graphData, setGraphData] = useState<GraphData | null>(null)
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
+  const [extractJobId, setExtractJobId] = useState('')
   const [error, setError] = useState('')
 
   // Filter & Search
@@ -112,6 +115,13 @@ export default function Graph() {
   useEffect(() => {
     if (!projectId) return
     void loadGraph()
+    // An extraction started before a refresh is still running: pick it back
+    // up so the graph reloads when it lands, not only the dock's toast.
+    const pending = listJobs().find((r) => r.kind === 'graph_extract' && r.projectId === projectId)
+    if (pending) {
+      setExtractJobId(pending.jobId)
+      setExtracting(true)
+    }
   }, [projectId])
 
   // Initialize physical nodes in circular layout
@@ -312,19 +322,37 @@ export default function Graph() {
   }
 
   // AI Extraction handler
+  // Extraction reads the manuscript and calls the model, so it runs as a job:
+  // submit, show progress, and re-read the graph once it has been written.
   async function handleAIExtract() {
     setExtracting(true)
     try {
-      notify('正在召唤 AI 深度扫描全书章节与世界书实体关系…', 'info')
-      const data = await api.extractGraph(projectId)
-      setGraphData(data)
-      initSimulation(data.nodes)
-      notify(`AI 提炼成功！已收录 ${data.nodes.length} 个实体与 ${data.edges.length} 条关系`, 'success')
+      const { job_id } = await api.extractGraph(projectId)
+      registerJob({ jobId: job_id, projectId, kind: 'graph_extract', label: 'AI 提炼图谱', startedAt: Date.now() })
+      setExtractJobId(job_id)
     } catch (err) {
-      notify(err instanceof APIError ? err.message : 'AI 扫描提炼失败', 'error')
-    } finally {
+      notify(errMessage(err, 'AI 扫描提炼失败'), 'error')
       setExtracting(false)
     }
+  }
+
+  async function onExtractDone(job: Job) {
+    setExtracting(false)
+    if (job.status !== 'succeeded') {
+      // Leave the progress bar mounted: it shows the job's own error.
+      notify(job.status === 'canceled' ? 'AI 提炼已取消' : 'AI 扫描提炼失败', 'error')
+      return
+    }
+    setExtractJobId('')
+    const r = resultData<GraphExtractResult>(job.result)
+    await loadGraph()
+    const read = r && r.chapters_total > r.chapters_read ? `（读取了前 ${r.chapters_read} / ${r.chapters_total} 章）` : ''
+    notify(
+      r
+        ? `AI 提炼完成：新增 ${r.nodes_created} 个实体、更新 ${r.nodes_updated} 个，新增 ${r.edges_created} 条关系${read}`
+        : 'AI 提炼完成',
+      'success',
+    )
   }
 
   // Manual create node handler
@@ -431,6 +459,20 @@ export default function Graph() {
       </div>
 
       {error ? <p className="error">{error}</p> : null}
+
+      {extractJobId ? (
+        <JobProgress
+          jobId={extractJobId}
+          projectId={projectId}
+          autoNavigate={false}
+          onSucceeded={(_r, job) => void onExtractDone(job)}
+          onStatus={(status) => {
+            if (status === 'failed' || status === 'canceled') {
+              void onExtractDone({ id: extractJobId, status } as Job)
+            }
+          }}
+        />
+      ) : null}
 
       {/* 图谱控制工具栏 */}
       <div className="graph-toolbar">

@@ -27,6 +27,15 @@ export type JobResult = {
   chapter_id?: string
 }
 
+/** What an AI graph extraction changed; the graph itself is re-read after. */
+export type GraphExtractResult = {
+  nodes_created: number
+  nodes_updated: number
+  edges_created: number
+  chapters_read: number
+  chapters_total: number
+}
+
 /** The newest successful result of a studio job, as saved in the jobs table. */
 export type StudioLatest<T> = {
   job_id: string

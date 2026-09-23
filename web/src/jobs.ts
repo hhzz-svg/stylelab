@@ -93,6 +93,22 @@ export function resultData<T>(result: Job['result']): T | null {
   return result as T
 }
 
+/** "3 分钟前" style label for when a saved studio result was produced, so the
+ *  reader can judge whether it still reflects the manuscript. */
+export function timeAgo(iso: string, now: number = Date.now()): string {
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return ''
+  const s = Math.max(0, Math.round((now - t) / 1000))
+  if (s < 60) return '刚刚'
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m} 分钟前`
+  const h = Math.round(m / 60)
+  if (h < 24) return `${h} 小时前`
+  const d = Math.round(h / 24)
+  if (d < 30) return `${d} 天前`
+  return new Date(t).toLocaleDateString('zh-CN')
+}
+
 /** 任务结果 → 前端路由。无结果返回空串。 */
 export function resultRoute(projectId: string, result: JobResult): string {
   if (result.card_id) return `/p/${projectId}/lab/${result.card_id}`

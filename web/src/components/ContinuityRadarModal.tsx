@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { CheckCircle2, Loader2, RefreshCw, ShieldAlert, X } from 'lucide-react'
 import { api, errMessage, notify } from '../api'
 import JobProgress from './JobProgress'
-import { registerJob, resultData } from '../jobs'
+import { registerJob, resultData, timeAgo } from '../jobs'
 import type { ContinuityAuditResponse, Job } from '../types'
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -28,12 +28,32 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
   // guard every open fired two concurrent audits against the user's API key.
   const inFlight = useRef(false)
   const [jobId, setJobId] = useState('')
+  // When the report on screen was produced; shown so the reader can judge
+  // whether it still reflects the manuscript.
+  const [savedAt, setSavedAt] = useState('')
+  // Same StrictMode double-invoke hazard as the audit itself.
+  const lookedUp = useRef(false)
 
+  // Opening the radar used to start a fresh, paid scan every time. Show the
+  // last saved report instead, and only scan when there has never been one;
+  // 重新扫描 still runs a new one on demand.
   useEffect(() => {
-    if (isOpen && !report) {
+    if (!isOpen || lookedUp.current) return
+    lookedUp.current = true
+    void (async () => {
+      try {
+        const { latest } = await api.projectStudioLatest<ContinuityAuditResponse>(projectId, 'continuity_audit')
+        if (latest) {
+          setReport(latest.result)
+          setSavedAt(latest.finished_at)
+          return
+        }
+      } catch {
+        // Could not read the saved report: fall back to scanning.
+      }
       void runAudit()
-    }
-  }, [isOpen, report])
+    })()
+  }, [isOpen, projectId])
 
   if (!isOpen) return null
 
@@ -62,6 +82,7 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
       const data = resultData<ContinuityAuditResponse>(job.result)
       if (data) {
         setReport(data)
+        setSavedAt(new Date().toISOString())
         notify('伏笔与战力逻辑雷达扫描完成！', 'success')
         return
       }
@@ -181,7 +202,14 @@ export default function ContinuityRadarModal({ projectId, isOpen, onClose }: Con
 
                 <div style={{ flex: 1, minWidth: '240px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                    <strong style={{ color: '#fff', fontSize: '1.05rem' }}>全书逻辑严谨度评估</strong>
+                    <strong style={{ color: '#fff', fontSize: '1.05rem' }}>
+                      全书逻辑严谨度评估
+                      {savedAt ? (
+                        <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 400, marginLeft: '0.6rem' }}>
+                          扫描于 {timeAgo(savedAt)}
+                        </span>
+                      ) : null}
+                    </strong>
                     <button
                       className="btn secondary"
                       type="button"

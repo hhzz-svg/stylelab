@@ -85,6 +85,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/chapters/{id}/continue", s.handleChapterContinue)
 	s.mux.HandleFunc("POST /api/projects/{id}/continuity-audit", s.handleContinuityAudit)
 	s.mux.HandleFunc("GET /api/projects/{id}/export", s.handleExportNovelMulti)
+	s.mux.HandleFunc("GET /api/projects/{id}/studio/latest", s.handleProjectStudioLatest)
+	s.mux.HandleFunc("GET /api/chapters/{id}/studio/latest", s.handleChapterStudioLatest)
 	s.mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
 	s.mux.HandleFunc("POST /api/jobs/{id}/cancel", s.handleCancelJob)
 	s.mux.HandleFunc("GET /api/jobs/{id}/events", s.handleJobEvents)

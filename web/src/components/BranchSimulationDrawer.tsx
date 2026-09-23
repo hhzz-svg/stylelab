@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { GitFork, Loader2, Sparkles, Wand2, X } from 'lucide-react'
 import { api, errMessage, notify } from '../api'
 import JobProgress from './JobProgress'
-import { registerJob, resultData } from '../jobs'
+import { registerJob, resultData, timeAgo } from '../jobs'
 import type { BranchSimulateResponse, Job, PlotBranch } from '../types'
 
 interface BranchSimulationDrawerProps {
@@ -30,6 +30,37 @@ export default function BranchSimulationDrawer({
   const [error, setError] = useState('')
   const [selectedBranch, setSelectedBranch] = useState<PlotBranch | null>(null)
   const [customPrompt, setCustomPrompt] = useState('')
+  const [savedAt, setSavedAt] = useState('')
+
+  // The drawer stays mounted while the chapter page moves between chapters,
+  // so its results must be dropped when the chapter changes -- otherwise one
+  // chapter's branches would be shown on the next.
+  useEffect(() => {
+    setData(null)
+    setSelectedBranch(null)
+    setSavedAt('')
+    setError('')
+  }, [chapterId])
+
+  // Show this chapter's last simulation rather than asking for a new, paid one.
+  useEffect(() => {
+    if (!isOpen || data) return
+    let live = true
+    api
+      .chapterStudioLatest<BranchSimulateResponse>(chapterId)
+      .then(({ latest }) => {
+        if (!live || !latest) return
+        setData(latest.result)
+        setSelectedBranch(latest.result.branches[0] ?? null)
+        setSavedAt(latest.finished_at)
+      })
+      .catch(() => {
+        // Nothing saved to show; 开始推演 works as before.
+      })
+    return () => {
+      live = false
+    }
+  }, [isOpen, chapterId, data])
 
   if (!isOpen) return null
 
@@ -54,6 +85,7 @@ export default function BranchSimulationDrawer({
       if (res) {
         setData(res)
         if (res.branches.length > 0) setSelectedBranch(res.branches[0])
+        setSavedAt(new Date().toISOString())
         notify('AI 剧情推演已生成 3 种破局走向！', 'success')
         return
       }
@@ -206,6 +238,9 @@ export default function BranchSimulationDrawer({
           </div>
         ) : (
           <div className="stack" style={{ gap: '1.2rem' }}>
+            {savedAt ? (
+              <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>推演于 {timeAgo(savedAt)}</p>
+            ) : null}
             {data.current_analysis ? (
               <div
                 style={{

@@ -117,8 +117,17 @@ refresh via the job dock, and are recovered on restart.
 
 They differ from the other job kinds in one way worth knowing: their result
 **is** the data the UI renders (the outline, the audit report, the branches),
-carried in `job.result`, rather than an id pointing at a persisted row. Nothing
-from these three is stored, so re-opening the radar costs a fresh model call.
+carried in `job.result`, rather than an id pointing at a persisted row.
+
+The newest successful result is reused rather than regenerated:
+`GET /api/projects/{id}/studio/latest?kind=outline_generate|continuity_audit`
+and `GET /api/chapters/{id}/studio/latest?kind=branch_simulate` return it, or
+`{"latest": null}` if there has been none. Re-opening the continuity radar
+shows the last report with its timestamp instead of paying for a new scan
+(重新扫描 still runs one); the outline planner offers the last outline; the
+branch drawer shows the chapter's last simulation. These are read straight
+from the `jobs` table, which is never pruned -- anything that ever prunes it
+must keep the newest succeeded job per kind, or move these to their own table.
 
 Jobs are in-process (`queued` → `running` → `succeeded` / `failed` / `canceled`). Default concurrency is 2. A process restart marks leftover `running` rows `failed` with `interrupted`.
 

@@ -17,6 +17,7 @@ import type {
   ParentRef,
   Project,
   SampleChapter,
+  StudioLatest,
   StyleCard,
 } from './types'
 
@@ -413,6 +414,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ model }),
     }),
+
+  /** Newest successful outline/audit for a project, or branch result for a
+   *  chapter. `latest` is null when there has been none. */
+  projectStudioLatest: <T>(projectId: string, kind: 'outline_generate' | 'continuity_audit') =>
+    request<{ latest: StudioLatest<T> | null }>(`/api/projects/${projectId}/studio/latest?kind=${kind}`),
+
+  chapterStudioLatest: <T>(chapterId: string) =>
+    request<{ latest: StudioLatest<T> | null }>(`/api/chapters/${chapterId}/studio/latest?kind=branch_simulate`),
 
   downloadNovel: async (projectId: string, format: 'txt' | 'md' = 'txt') => {
     const res = await fetch(`/api/projects/${projectId}/export?format=${format}`, {

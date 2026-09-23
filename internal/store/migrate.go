@@ -155,6 +155,8 @@ CREATE INDEX IF NOT EXISTS idx_graph_nodes_project ON project_graph_nodes(projec
 CREATE INDEX IF NOT EXISTS idx_graph_edges_project ON project_graph_edges(project_id, source_id, target_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(user_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_project_status ON jobs(project_id, status);
+-- Serves the "latest studio result" lookup: newest succeeded job of a kind.
+CREATE INDEX IF NOT EXISTS idx_jobs_project_kind ON jobs(project_id, kind, status);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
 `
 

@@ -22,12 +22,11 @@ import (
 	"stylelab/internal/studio"
 )
 
-// The studio handlers (outline, continuity radar, branch simulator) call the
-// LLM inline rather than through a job, and httpapi.New builds its own
-// *llm.Client, so there is no seam to inject a stub. There is no need for one:
-// the base URL travels from the user's stored BYOK key into llm.OpenAIURL, so
-// pointing a key at a local server is enough to both stub the reply and observe
-// the request that was sent.
+// The studio features (outline, continuity radar, branch simulator, continue)
+// run as jobs, so newStudioServer registers the real job handlers. The LLM is
+// stubbed without any injection seam: the base URL travels from the user's
+// stored BYOK key into llm.OpenAIURL, so pointing a key at a local server both
+// stubs the reply and lets a test observe the request that was sent.
 
 type fakeLLM struct {
 	srv   *httptest.Server
@@ -799,5 +798,130 @@ func TestStudioJobCanBeCanceled(t *testing.T) {
 	rec := awaitJob(t, srv, owner, jobID)
 	if rec["status"] != "canceled" && rec["status"] != "failed" {
 		t.Fatalf("status = %v, want canceled", rec["status"])
+	}
+}
+
+// --- Saved results -------------------------------------------------------
+
+func getLatest(t *testing.T, srv *httptest.Server, c *http.Client, path string) (int, map[string]any) {
+	t.Helper()
+	resp := mustGet(t, c, srv.URL+path)
+	defer resp.Body.Close()
+	return resp.StatusCode, decodeJSON(t, resp)
+}
+
+func TestStudioLatestResult(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "studio-latest@example.com")
+	projectID := createProject(t, srv, owner, "保存结果")
+	createChapter(t, srv, owner, projectID, "第一章", "梗概")
+	fake := newFakeLLM(t, validContinuityJSON())
+	useFakeLLM(t, srv, owner, fake)
+
+	path := "/api/projects/" + projectID + "/studio/latest?kind=continuity_audit"
+
+	status, body := getLatest(t, srv, owner, path)
+	if status != http.StatusOK || body["latest"] != nil {
+		t.Fatalf("before any run: status %d, latest %v; want 200 and null", status, body["latest"])
+	}
+
+	runStudioJob(t, srv, owner, "/api/projects/"+projectID+"/continuity-audit", `{}`)
+	_, body = getLatest(t, srv, owner, path)
+	latest, _ := body["latest"].(map[string]any)
+	result, _ := latest["result"].(map[string]any)
+	if got := intFromJSON(result["score"]); got != 82 {
+		t.Fatalf("saved score = %d, want 82", got)
+	}
+	if latest["finished_at"] == "" || latest["job_id"] == "" {
+		t.Fatalf("latest missing job_id/finished_at: %v", latest)
+	}
+
+	// A newer run replaces it.
+	fake.setReply(`{"score":55,"overall":"第二次","issues":[],"foreshadows":[]}`)
+	runStudioJob(t, srv, owner, "/api/projects/"+projectID+"/continuity-audit", `{}`)
+	_, body = getLatest(t, srv, owner, path)
+	result, _ = body["latest"].(map[string]any)["result"].(map[string]any)
+	if got := intFromJSON(result["score"]); got != 55 {
+		t.Fatalf("after second run score = %d, want the newer 55", got)
+	}
+
+	// Reading it back does not call the model.
+	before := fake.callCount()
+	getLatest(t, srv, owner, path)
+	if fake.callCount() != before {
+		t.Fatal("reading the saved result reached the LLM")
+	}
+}
+
+func TestStudioLatestIgnoresFailedRuns(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "studio-latest-fail@example.com")
+	projectID := createProject(t, srv, owner, "失败不算")
+	createChapter(t, srv, owner, projectID, "第一章", "梗概")
+	fake := newFakeLLM(t, validContinuityJSON())
+	useFakeLLM(t, srv, owner, fake)
+
+	runStudioJob(t, srv, owner, "/api/projects/"+projectID+"/continuity-audit", `{}`)
+	fake.setReply("不是 JSON")
+	rec := awaitJob(t, srv, owner, startStudioJob(t, srv, owner, "/api/projects/"+projectID+"/continuity-audit", `{}`))
+	if rec["status"] != "failed" {
+		t.Fatalf("second run status %v, want failed", rec["status"])
+	}
+
+	_, body := getLatest(t, srv, owner, "/api/projects/"+projectID+"/studio/latest?kind=continuity_audit")
+	result, _ := body["latest"].(map[string]any)["result"].(map[string]any)
+	if got := intFromJSON(result["score"]); got != 82 {
+		t.Fatalf("score = %d, want the last successful run (82)", got)
+	}
+}
+
+// Branch results are per chapter: one chapter's simulation must not show up
+// on another.
+func TestStudioLatestBranchIsPerChapter(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "studio-latest-branch@example.com")
+	projectID := createProject(t, srv, owner, "分章")
+	chA := createChapter(t, srv, owner, projectID, "第一章", "梗概")
+	chB := createChapter(t, srv, owner, projectID, "第二章", "梗概")
+	fake := newFakeLLM(t, validBranchJSON())
+	useFakeLLM(t, srv, owner, fake)
+
+	runStudioJob(t, srv, owner, "/api/chapters/"+chA+"/branch-simulate", `{"current_text":"正文"}`)
+
+	_, body := getLatest(t, srv, owner, "/api/chapters/"+chA+"/studio/latest?kind=branch_simulate")
+	if body["latest"] == nil {
+		t.Fatal("chapter A should have a saved simulation")
+	}
+	_, body = getLatest(t, srv, owner, "/api/chapters/"+chB+"/studio/latest?kind=branch_simulate")
+	if body["latest"] != nil {
+		t.Fatalf("chapter B shows chapter A's simulation: %v", body["latest"])
+	}
+}
+
+func TestStudioLatestValidationAndOwnership(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "studio-latest-own@example.com")
+	intruder := registerUser(t, srv, "studio-latest-intr@example.com")
+	projectID := createProject(t, srv, owner, "私有")
+	chapterID := createChapter(t, srv, owner, projectID, "第一章", "梗概")
+
+	cases := []struct {
+		name string
+		c    *http.Client
+		path string
+		want int
+	}{
+		{"unknown project kind", owner, "/api/projects/" + projectID + "/studio/latest?kind=chapter_continue", http.StatusBadRequest},
+		{"branch asked per project", owner, "/api/projects/" + projectID + "/studio/latest?kind=branch_simulate", http.StatusBadRequest},
+		{"project kind asked per chapter", owner, "/api/chapters/" + chapterID + "/studio/latest?kind=continuity_audit", http.StatusBadRequest},
+		{"intruder project", intruder, "/api/projects/" + projectID + "/studio/latest?kind=continuity_audit", http.StatusNotFound},
+		{"intruder chapter", intruder, "/api/chapters/" + chapterID + "/studio/latest?kind=branch_simulate", http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if status, _ := getLatest(t, srv, tc.c, tc.path); status != tc.want {
+				t.Fatalf("status = %d, want %d", status, tc.want)
+			}
+		})
 	}
 }

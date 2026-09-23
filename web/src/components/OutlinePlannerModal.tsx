@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowDownToLine, Loader2, Sparkles, Wand2, X } from 'lucide-react'
 import { api, errMessage, notify } from '../api'
 import JobProgress from './JobProgress'
-import { registerJob, resultData } from '../jobs'
+import { registerJob, resultData, timeAgo } from '../jobs'
 import type { CardSummary, Job, OutlineResponse, OutlineChapterItem } from '../types'
 
 interface OutlinePlannerModalProps {
@@ -36,6 +36,25 @@ export default function OutlinePlannerModal({
   const [cardId, setCardId] = useState('')
   const [loading, setLoading] = useState(false)
   const [jobId, setJobId] = useState('')
+  // The last generated outline, offered -- not auto-loaded -- so reopening the
+  // planner neither loses a paid generation nor clobbers a premise being typed.
+  const [saved, setSaved] = useState<{ result: OutlineResponse; at: string } | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    let live = true
+    api
+      .projectStudioLatest<OutlineResponse>(projectId, 'outline_generate')
+      .then(({ latest }) => {
+        if (live && latest) setSaved({ result: latest.result, at: latest.finished_at })
+      })
+      .catch(() => {
+        // Nothing to offer; the form works as before.
+      })
+    return () => {
+      live = false
+    }
+  }, [isOpen, projectId])
   const [importing, setImporting] = useState(false)
   const [replaceExisting, setReplaceExisting] = useState(false)
   const [outline, setOutline] = useState<OutlineResponse | null>(null)
@@ -158,6 +177,16 @@ export default function OutlinePlannerModal({
 
           {!outline ? (
             <div className="stack" style={{ gap: '1.2rem' }}>
+              {saved ? (
+                <div className="saved-result-banner">
+                  <span>
+                    上次生成的大纲 · {timeAgo(saved.at)}（{saved.result.volumes.reduce((n, v) => n + v.chapters.length, 0)} 章）
+                  </span>
+                  <button className="btn secondary sm" type="button" onClick={() => setOutline(saved.result)}>
+                    载入
+                  </button>
+                </div>
+              ) : null}
               <label>
                 核心故事梗概 / 金手指 / 核心冲突目标
                 <textarea

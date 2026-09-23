@@ -313,3 +313,28 @@ That work also exposed a containing-block bug: `.page` used `animation: pageRise
 - `loadUserKey` is now duplicated in seven packages. Worth consolidating, but it touches every job package.
 - Outline/audit/branch results are still not persisted, so re-opening the radar costs another model call. Storing them is the natural next step now that they are jobs.
 - `.dock-card.failed`, `.preset-tag`, `.muted-row`, `.ok`/`.warn` are dynamic or compound names the lint cannot see statically; they remain unchecked.
+
+## 2026-09-23 - Task: Close out the three open items
+
+### What was done
+The three gaps left at the end of the previous entry, each its own commit.
+
+**One BYOK key loader instead of eight.** sample, write, extract, fuse, audit, bible, studio and httpapi each had a `loadUserKey`; diffed, all identical (bible only renamed the type). The duplication had become a correctness risk: the HTTP layer calls its copy as a precheck before enqueueing and the job calls its own when it runs, so the two must pick the same key. `internal/llmkey` is now the only implementation, logic verbatim. `bible.Key` is an alias so its API and tests are untouched; httpapi keeps `loadUserLLMKey` as a one-line wrapper. No existing test changed; new tests pin the selection rule.
+
+**The CSS lint reads className expressions.** It now brace-matches `className={...}` and collects its string literals after dropping comparison operands (`mode === 'custom' ? 'on' : ''` yields only `on`). That found eight undefined classes, four of them signals the user could not see: no drop target when dragging a card onto a fusion slot (`.drop-over` — the earlier progress entry said this was added; it wasn't), no colour on the NN/100 "can I submit" total (`.ok`/`.warn`), no red on the over-limit rune counter (`.danger-text`), and failed dock jobs looking like running ones (`.dock-card.failed`). Plus one the lint structurally cannot catch: the active blend recipe uses `.btn.secondary.on`, and `.on` counts as defined because `.dim-pill.on` exists — nothing styled it on a button. The lint header now states that limit.
+
+**Studio results are saved and reused.** Re-opening the continuity radar used to start a new paid scan every time. The newest successful result of each studio kind is now served from the `jobs` table (which already stores `result_json` and is never pruned) via `GET .../studio/latest`. The radar shows the last report with "扫描于 X" and only scans when there has never been one; the outline planner offers the last outline behind a 载入 button rather than overwriting the form; the branch drawer shows the chapter's last simulation. "Newest" is by `rowid`, because the RFC3339Nano timestamps trim trailing zeros and do not sort correctly as strings.
+
+### Also fixed
+- The branch drawer stays mounted while moving between chapters, so its results were keyed to nothing; it now resets on chapter change.
+- `studio_test.go`'s header comment still described the pre-job design.
+
+### Testing
+- `go test ./... -count=1` (18 packages incl. new `llmkey`), `go vet`, `gofmt` clean; `npm run lint:css`, `npm run build`, `web/dist` clean.
+- New tests: saved result round-trips; a newer run replaces it; a failed run does not; reading it does not call the model; branch results are per chapter (which also proves `json_extract` works in the bundled SQLite 3.49.1); kind validation and cross-user 404.
+- Lint probed both ways: a new dynamic class fails the check; a comparison operand is not reported.
+- Browser (Playwright, counting stub LLM): radar first open scans (1 call); reopen and full reload show the saved report with the stub still at 1 call; outline banner appears after reload and 载入 restores it; branch results stay per chapter across both full reloads and in-app 下一章 navigation; all five new state styles checked against real renders, the drop target via a dispatched `dragover`.
+
+### Known gaps
+- Saved results live and die with the `jobs` table. Nothing prunes it today; if something ever does, it must keep the newest succeeded job per kind.
+- Queued jobs are claimed with `ORDER BY created_at` over the same RFC3339Nano strings, so two jobs queued in the same second can run out of order. Out of scope here; raised as a separate task.

@@ -27,6 +27,13 @@ export type JobResult = {
   chapter_id?: string
 }
 
+/** The newest successful result of a studio job, as saved in the jobs table. */
+export type StudioLatest<T> = {
+  job_id: string
+  finished_at: string
+  result: T
+}
+
 export type Job = {
   id: string
   user_id: string

@@ -55,6 +55,18 @@ export function removeJob(jobId: string) {
   write(read().filter((r) => r.jobId !== jobId))
 }
 
+// Jobs whose launching page is still open and announces the result itself
+// (this tab only). The dock stays quiet for these instead of toasting twice.
+const claimed = new Set<string>()
+
+export function claimJob(jobId: string) {
+  claimed.add(jobId)
+}
+
+export function isClaimed(jobId: string): boolean {
+  return claimed.has(jobId)
+}
+
 /** 订阅任务列表变化（本标签页 + 其他标签页）。返回取消函数。 */
 export function onJobsChange(cb: () => void): () => void {
   function onStorage(e: StorageEvent) {

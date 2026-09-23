@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { resultFromJob, resultRoute } from '../jobs'
+import { claimJob, resultFromJob, resultRoute } from '../jobs'
 import { useJobPoll } from '../hooks'
 import type { Job, JobResult, JobStatus } from '../types'
 
@@ -45,7 +45,11 @@ export default function JobProgress({
     if (job?.status !== 'succeeded' || handled.current === job.id) return
     handled.current = job.id
     const result = resultFromJob(job.result)
-    onSucceeded?.(result, job)
+    if (onSucceeded) {
+      // This page shows the result and toasts it; the dock need not.
+      claimJob(job.id)
+      onSucceeded(result, job)
+    }
     if (!autoNavigate || !projectId) return
     const to = resultRoute(projectId, result)
     if (to) navigate(to)

@@ -11,9 +11,9 @@ import (
 
 	"stylelab/internal/bible"
 	"stylelab/internal/card"
-	"stylelab/internal/cryptokey"
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
+	"stylelab/internal/llmkey"
 	"stylelab/internal/store"
 )
 
@@ -73,12 +73,6 @@ type ChapterSummary struct {
 	CardID      string `json:"card_id"`
 	TargetRunes int    `json:"target_runes"`
 	UpdatedAt   string `json:"updated_at"`
-}
-
-type llmKey struct {
-	Provider string
-	BaseURL  string
-	APIKey   string
 }
 
 func ClampTarget(n int) int {
@@ -183,7 +177,7 @@ func Run(ctx context.Context, st *store.Store, client *llm.Client, master []byte
 	bibleBlock := bible.RenderForPrompt(entries)
 
 	prog(20, "llm_key")
-	key, err := loadUserKey(ctx, st, master, userID)
+	key, err := llmkey.Load(ctx, st, master, userID)
 	if err != nil {
 		return Chapter{}, err
 	}
@@ -232,19 +226,19 @@ func Run(ctx context.Context, st *store.Store, client *llm.Client, master []byte
 
 // syncBible 用同一把 LLM key 把刚写完的一章交给设定集管理员维护；
 // 失败不致命（同 summary 先例）——章节已持久化，设定集未更新也不影响本章。
-func syncBible(ctx context.Context, st *store.Store, client *llm.Client, key llmKey, model, userID, projectID string, seq int, title, body string) {
+func syncBible(ctx context.Context, st *store.Store, client *llm.Client, key llmkey.Key, model, userID, projectID string, seq int, title, body string) {
 	entries, err := bible.ListByProject(ctx, st, userID, projectID)
 	if err != nil {
 		return
 	}
-	ops, err := bible.SyncChapter(ctx, client, bible.Key{Provider: key.Provider, BaseURL: key.BaseURL, APIKey: key.APIKey}, model, entries, seq, title, body)
+	ops, err := bible.SyncChapter(ctx, client, key, model, entries, seq, title, body)
 	if err != nil {
 		return
 	}
 	_, _, _ = bible.ApplyOps(ctx, st, userID, projectID, seq, ops)
 }
 
-func chatChapter(ctx context.Context, client *llm.Client, key llmKey, model string, c card.Card, ch Chapter, siblings []ChapterSummary, prev []Chapter, bibleBlock, note string, target int) (string, error) {
+func chatChapter(ctx context.Context, client *llm.Client, key llmkey.Key, model string, c card.Card, ch Chapter, siblings []ChapterSummary, prev []Chapter, bibleBlock, note string, target int) (string, error) {
 	cardJSON, err := json.Marshal(map[string]any{
 		"id":           c.ID,
 		"name":         c.Name,
@@ -321,7 +315,7 @@ func ChapterUserPrompt(ch Chapter, siblings []ChapterSummary, prev []Chapter, bi
 	return b.String()
 }
 
-func chatSummary(ctx context.Context, client *llm.Client, key llmKey, model, title, body string) (string, error) {
+func chatSummary(ctx context.Context, client *llm.Client, key llmkey.Key, model, title, body string) (string, error) {
 	req := llm.Request{
 		Provider:  key.Provider,
 		BaseURL:   key.BaseURL,
@@ -604,42 +598,4 @@ func loadOwnedCard(ctx context.Context, st *store.Store, userID, cardID string) 
 		return card.Card{}, err
 	}
 	return out, nil
-}
-
-func loadUserKey(ctx context.Context, st *store.Store, master []byte, userID string) (llmKey, error) {
-	rows, err := st.DB().QueryContext(
-		ctx,
-		`SELECT provider, base_url, encrypted_key FROM user_llm_keys WHERE user_id = ? ORDER BY provider`,
-		userID,
-	)
-	if err != nil {
-		return llmKey{}, err
-	}
-	defer rows.Close()
-
-	var keys []llmKey
-	for rows.Next() {
-		var provider, baseURL string
-		var blob []byte
-		if err := rows.Scan(&provider, &baseURL, &blob); err != nil {
-			return llmKey{}, err
-		}
-		plain, err := cryptokey.Open(master, blob)
-		if err != nil {
-			return llmKey{}, err
-		}
-		keys = append(keys, llmKey{Provider: provider, BaseURL: baseURL, APIKey: plain})
-	}
-	if err := rows.Err(); err != nil {
-		return llmKey{}, err
-	}
-	if len(keys) == 0 {
-		return llmKey{}, fmt.Errorf("invalid: missing llm key")
-	}
-	for _, k := range keys {
-		if k.Provider == "chat" || k.Provider == "response" || k.Provider == "openai" {
-			return k, nil
-		}
-	}
-	return keys[0], nil
 }

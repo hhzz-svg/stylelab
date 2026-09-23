@@ -10,10 +10,8 @@ package studio
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
-	"stylelab/internal/cryptokey"
 	"stylelab/internal/store"
 )
 
@@ -37,12 +35,6 @@ const (
 	branchTailRunes        = 1200
 	continueInstructionMax = 500
 )
-
-type llmKey struct {
-	Provider string
-	BaseURL  string
-	APIKey   string
-}
 
 // resolveModel returns the first non-blank candidate, falling back to
 // DefaultModel.
@@ -88,47 +80,6 @@ func cleanJSONMarkdown(s string) string {
 		s = strings.TrimSuffix(s, "```")
 	}
 	return strings.TrimSpace(s)
-}
-
-// loadUserKey mirrors the identical helper in sample/write/extract/fuse/audit/
-// bible. Consolidating the six copies is worth doing, but is a refactor across
-// every job package rather than part of this change.
-func loadUserKey(ctx context.Context, st *store.Store, master []byte, userID string) (llmKey, error) {
-	rows, err := st.DB().QueryContext(
-		ctx,
-		`SELECT provider, base_url, encrypted_key FROM user_llm_keys WHERE user_id = ? ORDER BY provider`,
-		userID,
-	)
-	if err != nil {
-		return llmKey{}, err
-	}
-	defer rows.Close()
-
-	var keys []llmKey
-	for rows.Next() {
-		var provider, baseURL string
-		var blob []byte
-		if err := rows.Scan(&provider, &baseURL, &blob); err != nil {
-			return llmKey{}, err
-		}
-		plain, err := cryptokey.Open(master, blob)
-		if err != nil {
-			return llmKey{}, err
-		}
-		keys = append(keys, llmKey{Provider: provider, BaseURL: baseURL, APIKey: plain})
-	}
-	if err := rows.Err(); err != nil {
-		return llmKey{}, err
-	}
-	if len(keys) == 0 {
-		return llmKey{}, fmt.Errorf("invalid: missing llm key")
-	}
-	for _, k := range keys {
-		if k.Provider == "chat" || k.Provider == "response" || k.Provider == "openai" {
-			return k, nil
-		}
-	}
-	return keys[0], nil
 }
 
 // ownsProject reports whether the project belongs to the user. The HTTP layer

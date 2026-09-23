@@ -13,11 +13,11 @@ import (
 	"time"
 
 	"stylelab/internal/card"
-	"stylelab/internal/cryptokey"
 	"stylelab/internal/fuse"
 	"stylelab/internal/ids"
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
+	"stylelab/internal/llmkey"
 )
 
 type createVersionRequest struct {
@@ -387,9 +387,9 @@ func (s *Server) rewriteChangedSummaries(ctx context.Context, userID, model stri
 		return nil, err
 	}
 	raw, err := s.llm.Chat(ctx, llm.Request{
-		Provider: key.provider,
-		BaseURL:  key.baseURL,
-		APIKey:   key.apiKey,
+		Provider: key.Provider,
+		BaseURL:  key.BaseURL,
+		APIKey:   key.APIKey,
 		Model:    model,
 		Temp:     0.3,
 		Messages: []llm.Message{
@@ -403,48 +403,11 @@ func (s *Server) rewriteChangedSummaries(ctx context.Context, userID, model stri
 	return parseRewriteJSON(raw)
 }
 
-type llmKeyRow struct {
-	provider string
-	baseURL  string
-	apiKey   string
-}
-
-func (s *Server) loadUserLLMKey(ctx context.Context, userID string) (llmKeyRow, error) {
-	rows, err := s.st.DB().QueryContext(
-		ctx,
-		`SELECT provider, base_url, encrypted_key FROM user_llm_keys WHERE user_id = ? ORDER BY provider`,
-		userID,
-	)
-	if err != nil {
-		return llmKeyRow{}, err
-	}
-	defer rows.Close()
-
-	var keys []llmKeyRow
-	for rows.Next() {
-		var provider, baseURL string
-		var blob []byte
-		if err := rows.Scan(&provider, &baseURL, &blob); err != nil {
-			return llmKeyRow{}, err
-		}
-		plain, err := cryptokey.Open(s.cfg.MasterKey, blob)
-		if err != nil {
-			return llmKeyRow{}, err
-		}
-		keys = append(keys, llmKeyRow{provider: provider, baseURL: baseURL, apiKey: plain})
-	}
-	if err := rows.Err(); err != nil {
-		return llmKeyRow{}, err
-	}
-	if len(keys) == 0 {
-		return llmKeyRow{}, fmt.Errorf("invalid: missing llm key")
-	}
-	for _, k := range keys {
-		if k.provider == "chat" || k.provider == "response" || k.provider == "openai" {
-			return k, nil
-		}
-	}
-	return keys[0], nil
+// loadUserLLMKey is the HTTP layer's precheck before enqueueing an LLM job. It
+// must pick the same key the job will pick when it runs, which is why both go
+// through llmkey.Load rather than each keeping a copy.
+func (s *Server) loadUserLLMKey(ctx context.Context, userID string) (llmkey.Key, error) {
+	return llmkey.Load(ctx, s.st, s.cfg.MasterKey, userID)
 }
 
 func parseRewriteJSON(raw string) (map[string]card.Dimension, error) {

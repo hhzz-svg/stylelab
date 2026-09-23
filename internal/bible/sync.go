@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"stylelab/internal/cryptokey"
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
+	"stylelab/internal/llmkey"
 	"stylelab/internal/store"
 )
 
@@ -53,7 +53,7 @@ func RunSync(ctx context.Context, st *store.Store, client *llm.Client, master []
 	}
 
 	prog(5, "llm_key")
-	key, err := loadUserKey(ctx, st, master, userID)
+	key, err := llmkey.Load(ctx, st, master, userID)
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -117,42 +117,4 @@ func RunSync(ctx context.Context, st *store.Store, client *llm.Client, master []
 	}
 	prog(100, "done")
 	return SyncResult{ChaptersSynced: len(chapters), Entries: len(entries)}, nil
-}
-
-func loadUserKey(ctx context.Context, st *store.Store, master []byte, userID string) (Key, error) {
-	rows, err := st.DB().QueryContext(
-		ctx,
-		`SELECT provider, base_url, encrypted_key FROM user_llm_keys WHERE user_id = ? ORDER BY provider`,
-		userID,
-	)
-	if err != nil {
-		return Key{}, err
-	}
-	defer rows.Close()
-
-	var keys []Key
-	for rows.Next() {
-		var provider, baseURL string
-		var blob []byte
-		if err := rows.Scan(&provider, &baseURL, &blob); err != nil {
-			return Key{}, err
-		}
-		plain, err := cryptokey.Open(master, blob)
-		if err != nil {
-			return Key{}, err
-		}
-		keys = append(keys, Key{Provider: provider, BaseURL: baseURL, APIKey: plain})
-	}
-	if err := rows.Err(); err != nil {
-		return Key{}, err
-	}
-	if len(keys) == 0 {
-		return Key{}, fmt.Errorf("invalid: missing llm key")
-	}
-	for _, k := range keys {
-		if k.Provider == "chat" || k.Provider == "response" || k.Provider == "openai" {
-			return k, nil
-		}
-	}
-	return keys[0], nil
 }

@@ -10,10 +10,10 @@ import (
 	"unicode/utf8"
 
 	"stylelab/internal/card"
-	"stylelab/internal/cryptokey"
 	"stylelab/internal/ids"
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
+	"stylelab/internal/llmkey"
 	"stylelab/internal/store"
 	"stylelab/internal/stylestat"
 )
@@ -43,12 +43,6 @@ type Sample struct {
 	Body        string          `json:"body"`
 	Facts       json.RawMessage `json:"facts"`
 	Target      int             `json:"target_runes"`
-}
-
-type llmKey struct {
-	Provider string
-	BaseURL  string
-	APIKey   string
 }
 
 func JobHandler(st *store.Store, client *llm.Client, master []byte) job.Handler {
@@ -98,7 +92,7 @@ func Run(ctx context.Context, st *store.Store, client *llm.Client, master []byte
 	}
 
 	prog(25, "llm_key")
-	key, err := loadUserKey(ctx, st, master, userID)
+	key, err := llmkey.Load(ctx, st, master, userID)
 	if err != nil {
 		return Sample{}, err
 	}
@@ -184,45 +178,7 @@ func loadOwnedCard(ctx context.Context, st *store.Store, userID, cardID string) 
 	return out, nil
 }
 
-func loadUserKey(ctx context.Context, st *store.Store, master []byte, userID string) (llmKey, error) {
-	rows, err := st.DB().QueryContext(
-		ctx,
-		`SELECT provider, base_url, encrypted_key FROM user_llm_keys WHERE user_id = ? ORDER BY provider`,
-		userID,
-	)
-	if err != nil {
-		return llmKey{}, err
-	}
-	defer rows.Close()
-
-	var keys []llmKey
-	for rows.Next() {
-		var provider, baseURL string
-		var blob []byte
-		if err := rows.Scan(&provider, &baseURL, &blob); err != nil {
-			return llmKey{}, err
-		}
-		plain, err := cryptokey.Open(master, blob)
-		if err != nil {
-			return llmKey{}, err
-		}
-		keys = append(keys, llmKey{Provider: provider, BaseURL: baseURL, APIKey: plain})
-	}
-	if err := rows.Err(); err != nil {
-		return llmKey{}, err
-	}
-	if len(keys) == 0 {
-		return llmKey{}, fmt.Errorf("invalid: missing llm key")
-	}
-	for _, k := range keys {
-		if k.Provider == "chat" || k.Provider == "response" || k.Provider == "openai" {
-			return k, nil
-		}
-	}
-	return keys[0], nil
-}
-
-func chatSample(ctx context.Context, client *llm.Client, key llmKey, model string, c card.Card, premise string, target int) (string, error) {
+func chatSample(ctx context.Context, client *llm.Client, key llmkey.Key, model string, c card.Card, premise string, target int) (string, error) {
 	if strings.TrimSpace(model) == "" {
 		model = defaultSampleModel
 	}

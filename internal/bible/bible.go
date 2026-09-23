@@ -12,6 +12,7 @@ import (
 
 	"stylelab/internal/ids"
 	"stylelab/internal/llm"
+	"stylelab/internal/llmkey"
 	"stylelab/internal/store"
 )
 
@@ -76,11 +77,9 @@ type Op struct {
 	Status  string `json:"status,omitempty"`
 }
 
-type Key struct {
-	Provider string
-	BaseURL  string
-	APIKey   string
-}
+// Key is the shared BYOK credential type, aliased so callers and tests that
+// spell it bible.Key keep compiling.
+type Key = llmkey.Key
 
 func ValidateKind(kind string) (string, error) {
 	switch strings.TrimSpace(kind) {

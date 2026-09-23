@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"stylelab/internal/card"
-	"stylelab/internal/cryptokey"
 	"stylelab/internal/ids"
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
+	"stylelab/internal/llmkey"
 	"stylelab/internal/store"
 )
 
@@ -28,12 +28,6 @@ type FuseSpec struct {
 	Name    string           `json:"name"`
 	Parents []card.ParentRef `json:"parents"`
 	Model   string           `json:"model"`
-}
-
-type llmKey struct {
-	Provider string
-	BaseURL  string
-	APIKey   string
 }
 
 func JobHandler(st *store.Store, client *llm.Client, master []byte) job.Handler {
@@ -77,7 +71,7 @@ func Run(ctx context.Context, st *store.Store, client *llm.Client, master []byte
 	}
 
 	prog(45, "llm_key")
-	key, err := loadUserKey(ctx, st, master, userID)
+	key, err := llmkey.Load(ctx, st, master, userID)
 	if err != nil {
 		return card.Card{}, nil, err
 	}
@@ -196,45 +190,7 @@ func decodeCard(id, projectID, name, kind string, version int, dimsJSON, prohibJ
 	return c, nil
 }
 
-func loadUserKey(ctx context.Context, st *store.Store, master []byte, userID string) (llmKey, error) {
-	rows, err := st.DB().QueryContext(
-		ctx,
-		`SELECT provider, base_url, encrypted_key FROM user_llm_keys WHERE user_id = ? ORDER BY provider`,
-		userID,
-	)
-	if err != nil {
-		return llmKey{}, err
-	}
-	defer rows.Close()
-
-	var keys []llmKey
-	for rows.Next() {
-		var provider, baseURL string
-		var blob []byte
-		if err := rows.Scan(&provider, &baseURL, &blob); err != nil {
-			return llmKey{}, err
-		}
-		plain, err := cryptokey.Open(master, blob)
-		if err != nil {
-			return llmKey{}, err
-		}
-		keys = append(keys, llmKey{Provider: provider, BaseURL: baseURL, APIKey: plain})
-	}
-	if err := rows.Err(); err != nil {
-		return llmKey{}, err
-	}
-	if len(keys) == 0 {
-		return llmKey{}, fmt.Errorf("invalid: missing llm key")
-	}
-	for _, k := range keys {
-		if k.Provider == "chat" || k.Provider == "response" || k.Provider == "openai" {
-			return k, nil
-		}
-	}
-	return keys[0], nil
-}
-
-func chatFuse(ctx context.Context, client *llm.Client, key llmKey, model string, parents []card.Card, spec []card.ParentRef, dims map[string]card.Dimension, prohibitions []string) (map[string]card.Dimension, []string, error) {
+func chatFuse(ctx context.Context, client *llm.Client, key llmkey.Key, model string, parents []card.Card, spec []card.ParentRef, dims map[string]card.Dimension, prohibitions []string) (map[string]card.Dimension, []string, error) {
 	if strings.TrimSpace(model) == "" {
 		model = defaultFuseModel
 	}

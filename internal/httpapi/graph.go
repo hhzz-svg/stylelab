@@ -425,9 +425,9 @@ func (s *Server) handleExtractGraph(w http.ResponseWriter, r *http.Request) {
 }`
 
 	outText, err := s.llm.Chat(r.Context(), llm.Request{
-		Provider: key.provider,
-		BaseURL:  key.baseURL,
-		APIKey:   key.apiKey,
+		Provider: key.Provider,
+		BaseURL:  key.BaseURL,
+		APIKey:   key.APIKey,
 		Model:    resolveModel(""),
 		Temp:     0.2,
 		Messages: []llm.Message{

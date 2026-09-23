@@ -8,6 +8,7 @@ import (
 
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
+	"stylelab/internal/llmkey"
 	"stylelab/internal/store"
 )
 
@@ -150,7 +151,7 @@ func RunBranch(
 		return BranchResult{}, err
 	}
 
-	key, err := loadUserKey(ctx, st, master, userID)
+	key, err := llmkey.Load(ctx, st, master, userID)
 	if err != nil {
 		return BranchResult{}, err
 	}
@@ -227,7 +228,7 @@ func RunContinue(
 	currentText := tailRunes(strings.TrimSpace(in.CurrentText), branchTailRunes)
 	instruction := headRunes(strings.TrimSpace(in.Instruction), continueInstructionMax)
 
-	key, err := loadUserKey(ctx, st, master, userID)
+	key, err := llmkey.Load(ctx, st, master, userID)
 	if err != nil {
 		return ContinueResult{}, err
 	}

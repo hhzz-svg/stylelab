@@ -8,6 +8,7 @@ import (
 
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
+	"stylelab/internal/llmkey"
 	"stylelab/internal/store"
 )
 
@@ -79,7 +80,7 @@ func RunContinuity(
 		return ContinuityResult{}, err
 	}
 
-	key, err := loadUserKey(ctx, st, master, userID)
+	key, err := llmkey.Load(ctx, st, master, userID)
 	if err != nil {
 		return ContinuityResult{}, err
 	}

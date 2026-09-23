@@ -423,8 +423,10 @@ button {
 .table {
   min-height: 100vh;
   padding: 2.2rem 2.8rem 4.5rem;
+  /* No z-index: with one, .table is a stacking context, and every modal and
+     drawer rendered inside a page -- z-index 95-100 -- was confined to it and
+     painted under the sidebar (40), which stayed lit and clickable. */
   position: relative;
-  z-index: 2;
 }
 
 .page {

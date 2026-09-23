@@ -154,6 +154,7 @@ Use the downloaded JSON as a simulation profile input in ainovel-cli. Style Lab 
 | `npm run lint:css` | `var(--x)` and `className` values with no definition in `styles.css` |
 | `npm run build` | Type errors (`tsc --noEmit`) and a broken production build |
 | `web/dist` diff | A frontend change that was never rebuilt, which would ship a stale UI |
+| `npm run test:e2e` | UI regressions unit tests cannot see: overlays clipped or under the sidebar, invisible progress bars, a job lost on reload, duplicate toasts |
 
 Run the whole set locally before pushing:
 
@@ -161,7 +162,13 @@ Run the whole set locally before pushing:
 gofmt -l internal cmd && go vet ./... && go test ./... -count=1
 cd web && npm ci && npm run lint:css && npm run build
 git status --porcelain -- web/dist    # must be empty
+cd web && npm run test:e2e             # after npm run build
 ```
+
+The browser smoke tests (`web/e2e/`) start the real Go server -- which embeds
+`web/dist`, so build first -- and a stub model provider that users' BYOK keys
+point at, then drive Chromium through them. Run `npx playwright install
+chromium` once, or point `E2E_CHROMIUM` at a Chromium binary you already have.
 
 `npm run lint:css` compares against `web/scripts/css-baseline.json`, which
 records class names that are used but have no rule today. The list is a record

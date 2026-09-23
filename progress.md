@@ -370,3 +370,26 @@ Answered "not yet" with a list, then closed the four items in it.
 - Nothing has been run against a real model provider; the LLM is stubbed through the BYOK `base_url` everywhere.
 - Rewriting a card's dimension summaries is still an inline model call (short prompt, only the changed dimensions).
 - A completed studio job shows two toasts when its page is open — the dock's generic one and the page's detailed one. This predates this round and applies to all studio features.
+
+## 2026-09-23 - Task: Lock the UI fixes into CI
+
+### What was done
+Answered "is it complete?" a second time: the backend is (every route tested, every long model call a job, CI green); what was still missing was a guard for the UI. Every UI fix so far was verified only by hand-run Playwright scripts that CI never repeated.
+
+**Browser smoke tests in CI.** `web/e2e/` with `@playwright/test`: the real Go server (embedding the built `web/dist`) on a throwaway data dir, plus a stub model provider that the test users' BYOK keys point at, so the real job handlers run end to end. Five tests, each pinning a bug that shipped once: graph extraction runs as a job with a visible progress bar, survives a reload and is announced exactly once; a job whose page was left is announced by the dock; studio modals cover the whole viewport and sit on top; the card deck is a fixed full-height drawer whose scrim closes it; on a phone the opened sidebar is above the page. New CI job `e2e`, uploading the report and traces on failure.
+
+Each test was checked against the bug it guards by putting the bug back: `ToastHost` mounted twice, `.page` animation `fill-mode: both`, the page not claiming its job, and `.table`'s `z-index` each make the intended tests fail and nothing else.
+
+**One toast per finished job.** A studio job finishing with its page open produced two toasts: the page's, with the result, and the dock's generic "X 完成". The page's `JobProgress` now claims a job it shows the result of; the dock waits one poll past the end and stays quiet for a claimed job. With the page closed nobody claims it and the dock still announces it.
+
+### Also fixed
+- **Every modal and drawer painted under the sidebar.** `.table` had `z-index: 2`, making it a stacking context: overlays inside a page (z-index 95–100) were confined to it, below the sidebar (40), which stayed lit and clickable while a modal was open. Earlier checks measured the overlays' size, not what a click would hit; the new tests hit-test. The mobile sidebar was checked not to fall under the page as a result.
+- The first test runs measured layout mid-animation; the tests now wait for finite animations to end (spinners excluded).
+- Counting toasts on screen missed duplicates that had already dismissed themselves; the tests record every toast as it appears.
+
+### Testing
+- `npx playwright test --repeat-each=3`: 15/15. Go and lint/build checks unchanged and clean.
+
+### Known gaps
+- Still nothing run against a real model provider.
+- The smoke suite covers the fixed bugs, not every page.

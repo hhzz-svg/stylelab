@@ -16,3 +16,8 @@ stylelab-linux
 Thumbs.db
 node_modules/
 
+
+# Playwright e2e output
+web/e2e/.out/
+web/test-results/
+web/playwright-report/

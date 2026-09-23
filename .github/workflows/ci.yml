@@ -85,3 +85,47 @@ jobs:
             exit 1
           fi
           echo "web/dist is current"
+
+  e2e:
+    name: Browser smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the UI the server embeds
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke tests
+        # Real Go server + stub model provider; see web/playwright.config.ts.
+        # Each test pins a UI bug that unit tests cannot see.
+        run: npx playwright test
+
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7

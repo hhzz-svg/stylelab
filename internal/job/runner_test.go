@@ -183,3 +183,48 @@ func waitJob(t *testing.T, r *job.Runner, id, userID string, pred func(job.Recor
 	t.Fatalf("timeout waiting for job %s last=%+v", id, last)
 	return last
 }
+
+// Jobs must be claimed in the order they were queued. created_at is written as
+// RFC3339Nano, which trims trailing zeros, so those strings do not sort
+// chronologically: "…05.1Z" (earlier) sorts after "…05.12Z" (later), because
+// '2' < 'Z'. Ordering the queue by created_at therefore ran such jobs out of
+// order.
+func TestRunnerClaimsInEnqueueOrder(t *testing.T) {
+	st := openStore(t)
+	uid, pid := seedUserProject(t, st)
+
+	queued := []struct{ id, createdAt string }{
+		{"job_000000000000000a", "2026-09-23T10:00:05.1Z"},  // first queued
+		{"job_000000000000000b", "2026-09-23T10:00:05.12Z"}, // second queued
+	}
+	for _, q := range queued {
+		if _, err := st.DB().Exec(
+			`INSERT INTO jobs (id, user_id, project_id, kind, status, progress, stage, payload_json, created_at)
+			 VALUES (?, ?, ?, ?, 'queued', 0, '', '{}', ?)`,
+			q.id, uid, pid, string(job.KindExtract), q.createdAt,
+		); err != nil {
+			t.Fatalf("insert %s: %v", q.id, err)
+		}
+	}
+
+	order := make(chan string, len(queued))
+	r := job.NewRunner(st, 1) // one worker, so claim order is run order
+	r.Register(job.KindExtract, func(ctx context.Context, rec job.Record, prog func(int, string)) (json.RawMessage, error) {
+		order <- rec.ID
+		return json.RawMessage(`{}`), nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	r.Start(ctx)
+
+	for i, want := range queued {
+		select {
+		case got := <-order:
+			if got != want.id {
+				t.Fatalf("claim %d = %s, want %s (queued first)", i, got, want.id)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("claim %d: timed out", i)
+		}
+	}
+}

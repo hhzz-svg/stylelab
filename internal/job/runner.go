@@ -162,8 +162,10 @@ func (r *Runner) claim(ctx context.Context) (Record, bool, error) {
 	startedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	rec, err := scanRecord(tx.QueryRowContext(
 		ctx,
+		// FIFO by insertion order. Not created_at: it is RFC3339Nano, which
+		// trims trailing zeros, so those strings do not sort chronologically.
 		`UPDATE jobs SET status='running', started_at=?
-		 WHERE id=(SELECT id FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1)
+		 WHERE id=(SELECT id FROM jobs WHERE status='queued' ORDER BY rowid LIMIT 1)
 		 RETURNING id, user_id, project_id, kind, status, progress, stage, payload_json, result_json, error`,
 		startedAt,
 	))

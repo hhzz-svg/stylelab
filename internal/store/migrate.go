@@ -145,6 +145,28 @@ CREATE TABLE IF NOT EXISTS project_graph_edges (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chapter_scenes (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+  idx INTEGER NOT NULL,
+  start_rune INTEGER NOT NULL,
+  end_rune INTEGER NOT NULL,
+  runes INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  location_id TEXT NOT NULL DEFAULT '',
+  characters_json TEXT NOT NULL DEFAULT '[]',
+  cue TEXT NOT NULL DEFAULT '',
+  cue_text TEXT NOT NULL DEFAULT '',
+  -- auto: as segmented; edited: the author changed the title or summary.
+  origin TEXT NOT NULL DEFAULT 'auto',
+  -- Hash of the body the offsets refer to; a different body means stale.
+  body_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (chapter_id, idx)
+);
 
 -- Performance & Query Optimization Indexes
 CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id, created_at DESC);
@@ -158,6 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_project_status ON jobs(project_id, status);
 -- Serves the "latest studio result" lookup: newest succeeded job of a kind.
 CREATE INDEX IF NOT EXISTS idx_jobs_project_kind ON jobs(project_id, kind, status);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_chapter_scenes_project ON chapter_scenes(project_id, chapter_id, idx);
 `
 
 func migrate(db *sql.DB) error {

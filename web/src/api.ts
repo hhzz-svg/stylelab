@@ -7,6 +7,7 @@ import type {
   BibleEntrySummary,
   CardSummary,
   Chapter,
+  ChapterScenes,
   ChapterSummary,
   Cooccurrence,
   GraphAnalysis,
@@ -21,6 +22,7 @@ import type {
   ParentRef,
   Project,
   SampleChapter,
+  SceneRecord,
   StudioLatest,
   StyleCard,
 } from './types'
@@ -357,6 +359,20 @@ export const api = {
   deleteGraphEdge: (projectId: string, edgeId: string) =>
     request<{ ok: boolean }>(`/api/projects/${projectId}/graph/edges/${edgeId}`, {
       method: 'DELETE',
+    }),
+
+  chapterScenes: (chapterId: string) => request<ChapterScenes>(`/api/chapters/${chapterId}/scenes`),
+
+  splitScenes: (chapterId: string) =>
+    request<ChapterScenes>(`/api/chapters/${chapterId}/scenes/split`, { method: 'POST', body: '{}' }),
+
+  updateScene: (sceneId: string, edit: { title?: string; summary?: string }) =>
+    request<SceneRecord>(`/api/scenes/${sceneId}`, { method: 'PATCH', body: JSON.stringify(edit) }),
+
+  splitAllScenes: (projectId: string) =>
+    request<{ chapters: number; scenes: number }>(`/api/projects/${projectId}/scenes/split-all`, {
+      method: 'POST',
+      body: '{}',
     }),
 
   graphLineage: (projectId: string) =>

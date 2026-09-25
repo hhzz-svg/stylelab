@@ -97,12 +97,40 @@ export type Cooccurrence = {
   chapters: number[]
   chapter_titles: string[]
   units: number
-  unit_kind: 'paragraph' | 'scene'
+  unit_kind: 'paragraph' | 'scene' | 'mixed'
   appearances: Appearance[]
   pairs: CoPair[]
   absent: { id: string; last_seq: number; chapters_since: number }[]
   /** Frequent pairs with no relation drawn in the graph. */
   suggestions: CoPair[]
+}
+
+/** Why a scene starts where it does. */
+export type SceneCue = '' | 'separator' | 'transition' | 'shift'
+
+/** A stored scene of a chapter (see insight.SegmentScenes). */
+export type SceneRecord = {
+  id: string
+  chapter_id: string
+  index: number
+  /** Rune (code point) offsets into the chapter body. */
+  start: number
+  end: number
+  runes: number
+  title: string
+  summary: string
+  location: string
+  characters: string[]
+  cue: SceneCue
+  cue_text: string
+  origin: 'auto' | 'edited'
+  updated_at: string
+}
+
+export type ChapterScenes = {
+  scenes: SceneRecord[]
+  /** The body changed after the split. */
+  stale: boolean
 }
 
 /** A node of the lineage forest (see insight.BuildLineage). */

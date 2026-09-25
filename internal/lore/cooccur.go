@@ -40,6 +40,7 @@ const (
 
 // Written is a chapter with prose.
 type Written struct {
+	ID    string
 	Seq   int
 	Title string
 	Body  string
@@ -48,7 +49,7 @@ type Written struct {
 // LoadWritten reads the chapters that have a body, in order.
 func LoadWritten(ctx context.Context, st *store.Store, projectID string) ([]Written, error) {
 	rows, err := st.DB().QueryContext(ctx,
-		`SELECT seq, title, body FROM chapters WHERE project_id = ? AND TRIM(body) != '' ORDER BY seq`,
+		`SELECT id, seq, title, body FROM chapters WHERE project_id = ? AND TRIM(body) != '' ORDER BY seq`,
 		projectID)
 	if err != nil {
 		return nil, err
@@ -57,7 +58,7 @@ func LoadWritten(ctx context.Context, st *store.Store, projectID string) ([]Writ
 	var out []Written
 	for rows.Next() {
 		var w Written
-		if err := rows.Scan(&w.Seq, &w.Title, &w.Body); err != nil {
+		if err := rows.Scan(&w.ID, &w.Seq, &w.Title, &w.Body); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -109,12 +110,39 @@ func (w World) coEntities() []insight.CoEntity {
 	return out
 }
 
-func coChapters(written []Written) []insight.CoChapter {
-	out := make([]insight.CoChapter, len(written))
-	for i, c := range written {
-		out[i] = insight.CoChapter{Seq: c.Seq, Units: Paragraphs(c.Body)}
+// Unit kinds: what two entities must share to co-occur.
+const (
+	UnitParagraph = "paragraph"
+	UnitScene     = "scene"
+	UnitMixed     = "mixed" // scenes where a chapter has current ones, paragraphs elsewhere
+)
+
+// coChapters splits each written chapter into units: its scenes when it
+// has been segmented and the scenes still match the body, else paragraphs.
+func coChapters(ctx context.Context, st *store.Store, projectID string, written []Written) ([]insight.CoChapter, string, error) {
+	scenes, err := freshSceneUnits(ctx, st, projectID, written)
+	if err != nil {
+		return nil, "", err
 	}
-	return out
+	out := make([]insight.CoChapter, len(written))
+	byScene := 0
+	for i, c := range written {
+		units, ok := scenes[c.ID]
+		if ok {
+			byScene++
+		} else {
+			units = Paragraphs(c.Body)
+		}
+		out[i] = insight.CoChapter{Seq: c.Seq, Units: units}
+	}
+	kind := UnitMixed
+	switch byScene {
+	case 0:
+		kind = UnitParagraph
+	case len(written):
+		kind = UnitScene
+	}
+	return out, kind, nil
 }
 
 // CooccurrenceReport is what GET .../graph/cooccurrence returns.
@@ -136,7 +164,11 @@ func Cooccurrence(ctx context.Context, st *store.Store, projectID string, absent
 	if err != nil {
 		return CooccurrenceReport{}, err
 	}
-	co := insight.Cooccur(w.coEntities(), coChapters(written), absentAfter)
+	chapters, unitKind, err := coChapters(ctx, st, projectID, written)
+	if err != nil {
+		return CooccurrenceReport{}, err
+	}
+	co := insight.Cooccur(w.coEntities(), chapters, absentAfter)
 
 	linked := map[[2]string]bool{}
 	for _, l := range w.Links {
@@ -160,7 +192,7 @@ func Cooccurrence(ctx context.Context, st *store.Store, projectID string, absent
 	for i, c := range written {
 		titles[i] = c.Title
 	}
-	return CooccurrenceReport{Cooccurrence: co, ChapterTitles: titles, Suggestions: suggestions, UnitKind: "paragraph"}, nil
+	return CooccurrenceReport{Cooccurrence: co, ChapterTitles: titles, Suggestions: suggestions, UnitKind: unitKind}, nil
 }
 
 // textEdges turns co-occurrence into edges weighted in (0, 1]: the most

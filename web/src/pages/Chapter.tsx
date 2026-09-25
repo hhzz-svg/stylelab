@@ -26,6 +26,7 @@ import AudioNarrationBar from '../components/AudioNarrationBar'
 import BranchSimulationDrawer from '../components/BranchSimulationDrawer'
 import { confirm } from '../components/ConfirmDialog'
 import ChapterIntelPanel from '../components/ChapterIntelPanel'
+import ScenePanel from '../components/ScenePanel'
 import Crumb from '../components/Crumb'
 import InlineAIMenu from '../components/InlineAIMenu'
 import JobProgress from '../components/JobProgress'
@@ -1218,6 +1219,16 @@ export default function ChapterPage() {
                 onChange={(e) => setBody(e.target.value)}
               />
             </label>
+            {loadedChapter ? (
+              <ScenePanel
+                projectId={projectId}
+                chapterId={loadedChapter.id}
+                savedBody={loadedChapter.body}
+                dirty={body !== loadedChapter.body}
+                version={loadedChapter.updated_at}
+                bodyRef={bodyTextareaRef}
+              />
+            ) : null}
             <label>
               摘要（留给下一章）
               <textarea

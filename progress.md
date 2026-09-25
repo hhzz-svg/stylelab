@@ -457,3 +457,19 @@ Plan (six phases, each committed and pushed on its own): importance ranking, com
 - Unit: the matcher against the classic he/she/hers case, rune offsets, and brute force over a mixed text; co-occurrence counts, Jaccard and PMI by hand, the absence threshold both ways, empty input; alias parsing and paragraph splitting.
 - Route: the report counts aliases, skips unwritten chapters, lists the one pair and the missing 魔尊, stops suggesting once the relation is drawn, and validates `absent_after`; text weighting finds edges where none are drawn; bad modes 400; another user 404.
 - e2e: aliases count in the heat map; adding a nickname in the drawer raises the count and surfaces the suggestion; 建立关系 draws it; 正文共现 ranks 林远 first.
+
+## 2026-09-25 - Phase 5 — scene segmentation
+
+### What was done
+- `insight.SegmentScenes`, after Hearst's TextTiling, for Chinese without a word segmenter: paragraphs; separator-only lines are hard cuts; at each gap, cosine similarity of Han-character-pair vectors over ~200 runes each side and the valley depth; +0.5 when the next paragraph opens with a time/place transition (次日, N 天后, 与此同时, 却说, …); +0.3 × the Jaccard distance of the cast either side; soft cuts from the highest score down, above mean + ½σ with a depth of at least 0.15 (or a transition), refusing any that leaves a scene under 300 runes. Each scene: rune offsets, cast by mentions, main location, cue, a title from its first sentence, a summary from its opening.
+- New table `chapter_scenes` (cascades with the chapter) storing the scenes with a hash of the body they were cut from, so a changed body reads as stale.
+- `GET /api/chapters/{id}/scenes`, `POST .../scenes/split`, `PATCH /api/scenes/{id}` (title/summary; marks the scene edited, and re-splitting asks before overwriting), `POST /api/projects/{id}/scenes/split-all`. Co-occurrence now counts by scene for chapters with current scenes (`unit_kind` paragraph / scene / mixed) and falls back to paragraphs when the scenes are stale.
+- Chapter workbench: 本章场景 panel under the editor — split, cards with cue, length, location and cast; clicking selects the scene's text in the editor (rune offsets converted to UTF-16); ✎ renames. The timeline offers 全书切分场景.
+
+### Found while testing
+- Renaming by double-click could never work: the first click focuses the editor, which scrolls the page, so the second click lands elsewhere. Renaming is an explicit ✎ button.
+
+### Testing
+- Unit: three topical sections split at the right paragraphs with transitions, and again with no cue words at all (vocabulary and cast alone — the similarity curve bottoms out at 0.02 and 0.01 exactly at the breaks); uniform text stays whole; separators always cut and never appear inside a scene, edge separators and a dash inside prose do not cut; the minimum length refuses a one-line tail; empty and single-paragraph bodies; the transition pattern both ways.
+- Route: split → 3 scenes with the right cast, location and cue; renaming; a changed body reads stale and co-occurrence falls back to paragraphs; deleting the chapter deletes its scenes; an empty chapter is 400; split-all counts; another user gets 404 on all four routes.
+- e2e: split in the workbench, the selection covers exactly scene 2's text, a rename survives a reload, the timeline counts by scene; split-all from the timeline.

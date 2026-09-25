@@ -145,7 +145,11 @@ func Analyze(ctx context.Context, st *store.Store, projectID, weights string) (A
 		if err != nil {
 			return Analysis{}, err
 		}
-		co := insight.Cooccur(w.coEntities(), coChapters(written), 0)
+		chapters, _, err := coChapters(ctx, st, projectID, written)
+		if err != nil {
+			return Analysis{}, err
+		}
+		co := insight.Cooccur(w.coEntities(), chapters, 0)
 		edges = append(edges, textEdges(co.Pairs)...)
 	}
 	g := insight.NewGraph(w.nodeIDs(), edges)

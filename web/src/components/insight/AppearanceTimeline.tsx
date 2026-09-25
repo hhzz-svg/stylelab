@@ -12,7 +12,7 @@ type Props = {
   onGraphChanged: () => void
 }
 
-const UNIT_LABEL = { paragraph: '段落', scene: '场景' } as const
+const UNIT_LABEL = { paragraph: '段落', scene: '场景', mixed: '段落/场景' } as const
 
 /** Heat from a mention count: none is blank, the busiest cell is solid. */
 function heat(count: number, max: number): string | undefined {
@@ -26,6 +26,8 @@ export default function AppearanceTimeline({ projectId, nodes, version, onSelect
   const [report, setReport] = useState<Cooccurrence | null>(null)
   const [error, setError] = useState('')
   const [linking, setLinking] = useState('')
+  const [splitting, setSplitting] = useState(false)
+  const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
     let live = true
@@ -42,7 +44,7 @@ export default function AppearanceTimeline({ projectId, nodes, version, onSelect
     return () => {
       live = false
     }
-  }, [projectId, version])
+  }, [projectId, version, refresh])
 
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const name = (id: string) => byId.get(id)?.name ?? '？'
@@ -57,6 +59,19 @@ export default function AppearanceTimeline({ projectId, nodes, version, onSelect
       notify(errMessage(err, '建立关系失败'), 'error')
     } finally {
       setLinking('')
+    }
+  }
+
+  async function splitAll() {
+    setSplitting(true)
+    try {
+      const r = await api.splitAllScenes(projectId)
+      notify(`已把 ${r.chapters} 章切分为 ${r.scenes} 个场景，改按场景统计`, 'success')
+      setRefresh((n) => n + 1)
+    } catch (err) {
+      notify(errMessage(err, '切分场景失败'), 'error')
+    } finally {
+      setSplitting(false)
     }
   }
 
@@ -84,9 +99,22 @@ export default function AppearanceTimeline({ projectId, nodes, version, onSelect
   return (
     <div className="timeline-view">
       <div className="timeline-main">
-        <p className="insight-note">
-          {report.chapters.length} 章 · {report.units} 个{unit}。格子越亮，那一章提到得越多；名字按首次出场排序。
-        </p>
+        <div className="timeline-head">
+          <p className="insight-note">
+            {report.chapters.length} 章 · {report.units} 个{unit}。格子越亮，那一章提到得越多；名字按首次出场排序。
+          </p>
+          {report.unit_kind !== 'scene' ? (
+            <button
+              type="button"
+              className="btn secondary sm"
+              disabled={splitting}
+              title="同一场景里出现才算同场，比按段落更贴近剧情"
+              onClick={() => void splitAll()}
+            >
+              {splitting ? '切分中…' : '全书切分场景，改按场景统计'}
+            </button>
+          ) : null}
+        </div>
         <div className="timeline-scroll">
           <table className="timeline-grid">
             <thead>

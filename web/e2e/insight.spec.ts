@@ -59,3 +59,28 @@ test('community detection groups the camps and points out the spy', async ({ pag
   await expect.poll(() => stroke('卧底')).toBe(await stroke('林远'))
   expect(await stroke('卧底')).not.toBe(await stroke('魔尊'))
 })
+
+test('lineage tree puts the master above the disciple, and a swap flips them', async ({ page }) => {
+  const projectId = await setup(page)
+  await addNode(page, projectId, { name: '青云宗', kind: 'faction' })
+  const master = await addNode(page, projectId, { name: '赵长老', kind: 'character', faction: '青云宗' })
+  const disciple = await addNode(page, projectId, { name: '林远', kind: 'character', faction: '青云宗' })
+  await addEdge(page, projectId, master, disciple, '师徒')
+  await addNode(page, projectId, { name: '血影', kind: 'character', faction: '魔门' })
+
+  await page.goto(`/p/${projectId}/graph`)
+  await page.getByRole('tab', { name: /谱系树/ }).click()
+
+  const top = async (id: string) => (await page.locator(`.lineage-node[data-id="${id}"]`).boundingBox())!.y
+  await expect(page.locator(`.lineage-node[data-id="${disciple}"]`)).toBeVisible()
+  expect(await top(master)).toBeLessThan(await top(disciple))
+  await expect(page.locator(`.lineage-node[data-id="${disciple}"] .lineage-relation`)).toHaveText('师徒')
+  // 魔门 has no node of its own: it stands as a dashed virtual root.
+  await expect(page.locator('.lineage-node.virtual', { hasText: '魔门' })).toBeVisible()
+
+  // Open the disciple's profile from the tree and swap the relation.
+  await page.locator(`.lineage-node[data-id="${disciple}"]`).click()
+  await expect(page.locator('.entity-drawer-title')).toHaveText('林远')
+  await page.getByTitle('调换方向（谱系树里上下级互换）').click()
+  await expect.poll(async () => (await top(disciple)) < (await top(master))).toBe(true)
+})

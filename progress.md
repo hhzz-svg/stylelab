@@ -423,3 +423,19 @@ Plan (six phases, each committed and pushed on its own): importance ranking, com
 - Unit: two K4s joined by a bridge split exactly, with Q equal to the hand-worked 2·(12/26 − (13/26)²); a ring of six K4s splits into the six; edge weights decide a path's split; isolated nodes stay alone; 30 input shuffles give the same partition; naming, the half-rule and outliers.
 - Route: two camps with a spy labelled 魔门 among 青云宗 → two groups named 青云宗 and 魔门, the spy the only outlier, Q > 0.3.
 - e2e: the panel shows both groups and the spy; toggling colours gives the spy 林远's colour instead of 魔尊's.
+
+## 2026-09-25 - Phase 3 — lineage tree
+
+### What was done
+- Direction convention for hierarchical relations: the source is the superior (师徒, 师父, 父子, 君臣, 主仆, 掌门, …); words naming the junior side (徒弟, 弟子, 子女, 隶属, 成员, …) read the other way. The graph-extraction prompt now states it, and the profile drawer gains ⇄ to swap an edge's direction.
+- `insight.BuildLineage`: characters and factions only. Tree parent = superior of the same faction, then strongest tie, then oldest; other superiors kept as `extra_parents`. Anyone without a superior hangs from their faction's node, a virtual root when the faction has no node, or 未归属. A faction's own faction field nests it under another. Loops of superiors are detected (three-colour walk), one link cut, and the node falls back to its faction if that closes no new loop; faction labels never close a loop.
+- `insight` layout: Buchheim–Walker tidy tree (linear-time Walker), forest laid side by side.
+- `GET /api/projects/{id}/graph/lineage`; graph page gains a 关系网 / 谱系树 switch with an SVG tree (elbow links, relation labels, dashed extra masters, cycle warnings; click a node for its profile).
+
+### Found while testing
+- A master–disciple loop inside one sect dropped the cut node into 未归属 instead of its sect; it now falls back to its faction.
+
+### Testing
+- Unit: relation vocabulary both ways; a sect with a master chain, a virtual faction and an unaffiliated character; parent preference order and extra parents; a three-node loop reported and cut; two factions naming each other; layout — three leaves under a parent at 0/1/2 with the parent at 1, two leaves between two wide subtrees spread evenly (checked to fail with the shift-spreading disabled), 50 random trees keep order, centring and one-unit spacing, and forests do not overlap.
+- Route: 青云宗 → 赵长老 → 林远; swapping the edge puts 林远 on top; another user gets 404.
+- e2e: the master is drawn above the disciple with the 师徒 label, 魔门 appears as a virtual root, and ⇄ in the drawer flips them.

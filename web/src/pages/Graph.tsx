@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Crown,
+  GitFork,
   Network,
   PanelRight,
   Plus,
@@ -19,6 +20,7 @@ import { listJobs, registerJob, resultData } from '../jobs'
 import Crumb from '../components/Crumb'
 import EntityDrawer from '../components/EntityDrawer'
 import InsightPanel from '../components/insight/InsightPanel'
+import LineageTree from '../components/insight/LineageTree'
 import { communityColor } from '../components/insight/palette'
 import Skeleton from '../components/Skeleton'
 import { usePageTitle } from '../hooks'
@@ -71,6 +73,7 @@ export default function Graph() {
   const [showInsight, setShowInsight] = useState(true)
   const [sizeByImportance, setSizeByImportance] = useState(true)
   const [colorByCommunity, setColorByCommunity] = useState(false)
+  const [view, setView] = useState<'network' | 'lineage'>('network')
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
   const [extractJobId, setExtractJobId] = useState('')
@@ -502,6 +505,28 @@ export default function Graph() {
 
       {/* 图谱控制工具栏 */}
       <div className="graph-toolbar">
+        <div className="view-switch" role="tablist" aria-label="图谱视图">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'network'}
+            className={'view-tab' + (view === 'network' ? ' active' : '')}
+            onClick={() => setView('network')}
+          >
+            <Network size={14} /> 关系网
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'lineage'}
+            className={'view-tab' + (view === 'lineage' ? ' active' : '')}
+            onClick={() => setView('lineage')}
+          >
+            <GitFork size={14} /> 谱系树
+          </button>
+        </div>
+        {view === 'network' ? (
+        <>
         <div className="graph-filter-tabs">
           <button
             type="button"
@@ -589,7 +614,23 @@ export default function Graph() {
             </button>
           </div>
         </div>
+        </>
+        ) : null}
       </div>
+
+      {view === 'lineage' ? (
+        <LineageTree
+          projectId={projectId}
+          version={graphData}
+          onSelect={(nodeId) => {
+            const node = graphData?.nodes.find((n) => n.id === nodeId)
+            if (node) {
+              setSelectedNode(node)
+              setDrawerOpen(true)
+            }
+          }}
+        />
+      ) : (
 
       <div className="graph-body">
       {/* SVG 力导向图谱主画布 */}
@@ -798,6 +839,7 @@ export default function Graph() {
         />
       ) : null}
       </div>
+      )}
 
       {/* 侧边人物档案抽屉 */}
       <EntityDrawer

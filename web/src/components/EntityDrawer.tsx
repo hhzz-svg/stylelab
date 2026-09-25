@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  ArrowLeftRight,
   Link2,
   Plus,
   Save,
@@ -7,7 +8,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { APIError, api, notify } from '../api'
+import { APIError, api, errMessage, notify } from '../api'
 import { confirm } from './ConfirmDialog'
 import type { GraphEdge, GraphNode, GraphNodeKind } from '../types'
 
@@ -134,6 +135,24 @@ export default function EntityDrawer({
       notify(err instanceof APIError ? err.message : '添加关系失败', 'error')
     } finally {
       setSavingEdge(false)
+    }
+  }
+
+  // Swap source and target: the lineage tree reads the source of a 师徒 /
+  // 父子 / 君臣 relation as the superior.
+  async function handleSwapEdge(edge: GraphEdge) {
+    try {
+      await api.saveGraphEdge(projectId, {
+        id: edge.id,
+        source_id: edge.target_id,
+        target_id: edge.source_id,
+        relation: edge.relation,
+        description: edge.description,
+        strength: edge.strength,
+      })
+      onEdgeUpdated()
+    } catch (err) {
+      notify(errMessage(err, '调换方向失败'), 'error')
     }
   }
 
@@ -336,6 +355,15 @@ export default function EntityDrawer({
                           <span className="relation-desc muted">({edge.description})</span>
                         )}
                       </div>
+                      <div className="incident-edge-actions">
+                      <button
+                        className="icon-btn sm"
+                        type="button"
+                        onClick={() => void handleSwapEdge(edge)}
+                        title="调换方向（谱系树里上下级互换）"
+                      >
+                        <ArrowLeftRight size={13} />
+                      </button>
                       <button
                         className="icon-btn sm"
                         type="button"
@@ -344,6 +372,7 @@ export default function EntityDrawer({
                       >
                         <Trash2 size={13} color="var(--cinnabar-hi)" />
                       </button>
+                      </div>
                     </div>
                   )
                 })

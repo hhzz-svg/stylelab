@@ -212,3 +212,21 @@ func describeCommunities(p insight.Partition, nodes []Node, ranking []insight.No
 	}
 	return out
 }
+
+// Lineage builds the project's lineage forest: factions, their members,
+// and masters above disciples. Relations are read in creation order.
+func Lineage(ctx context.Context, st *store.Store, projectID string) (insight.Lineage, error) {
+	w, err := LoadWorld(ctx, st, projectID)
+	if err != nil {
+		return insight.Lineage{}, err
+	}
+	entities := make([]insight.TreeEntity, len(w.Nodes))
+	for i, n := range w.Nodes {
+		entities[i] = insight.TreeEntity{ID: n.ID, Name: n.Name, Kind: n.Kind, Faction: n.Faction}
+	}
+	links := make([]insight.TreeLink, len(w.Links))
+	for i, l := range w.Links {
+		links[i] = insight.TreeLink{Source: l.SourceID, Target: l.TargetID, Relation: l.Relation, Weight: l.Strength, Order: i}
+	}
+	return insight.BuildLineage(entities, links), nil
+}

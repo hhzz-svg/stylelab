@@ -144,3 +144,75 @@ func TestGraphAnalysisFindsFactionsAndTheSpy(t *testing.T) {
 		t.Fatalf("modularity %.3f", a.Modularity)
 	}
 }
+
+type lineageNodeView struct {
+	ID       string            `json:"id"`
+	Virtual  bool              `json:"virtual"`
+	Name     string            `json:"name"`
+	Relation string            `json:"relation"`
+	X        float64           `json:"x"`
+	Depth    int               `json:"depth"`
+	Children []lineageNodeView `json:"children"`
+}
+
+func getLineage(t *testing.T, srv *httptest.Server, c *http.Client, projectID string) (int, []lineageNodeView) {
+	t.Helper()
+	resp := mustGet(t, c, srv.URL+"/api/projects/"+projectID+"/graph/lineage")
+	defer resp.Body.Close()
+	var body struct {
+		Roots []lineageNodeView `json:"roots"`
+	}
+	if resp.StatusCode == http.StatusOK {
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatalf("decode lineage: %v", err)
+		}
+	}
+	return resp.StatusCode, body.Roots
+}
+
+// path returns the names from the root down to the node called name.
+func lineagePath(roots []lineageNodeView, name string) []string {
+	for _, r := range roots {
+		if r.Name == name {
+			return []string{r.Name}
+		}
+		if p := lineagePath(r.Children, name); p != nil {
+			return append([]string{r.Name}, p...)
+		}
+	}
+	return nil
+}
+
+func TestGraphLineageFollowsMastersAndSwaps(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "lineage@example.com")
+	intruder := registerUser(t, srv, "lineage-intruder@example.com")
+	projectID := createProject(t, srv, owner, "谱系")
+
+	_, _ = saveNode(t, srv, owner, projectID, `{"name":"青云宗","kind":"faction"}`)
+	_, master := saveNode(t, srv, owner, projectID, `{"name":"赵长老","faction":"青云宗"}`)
+	_, disciple := saveNode(t, srv, owner, projectID, `{"name":"林远","faction":"青云宗"}`)
+	_, edge := saveEdge(t, srv, owner, projectID, fmt.Sprintf(`{"source_id":%q,"target_id":%q,"relation":"师徒"}`, master, disciple))
+
+	code, roots := getLineage(t, srv, owner, projectID)
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	if got := lineagePath(roots, "林远"); fmt.Sprint(got) != "[青云宗 赵长老 林远]" {
+		t.Fatalf("path = %v", got)
+	}
+
+	// Swapping the edge's direction puts the other one on top.
+	if code, _ := saveEdge(t, srv, owner, projectID,
+		fmt.Sprintf(`{"id":%q,"source_id":%q,"target_id":%q,"relation":"师徒"}`, edge, disciple, master)); code != http.StatusOK {
+		t.Fatalf("swap: %d", code)
+	}
+	_, roots = getLineage(t, srv, owner, projectID)
+	if got := lineagePath(roots, "赵长老"); fmt.Sprint(got) != "[青云宗 林远 赵长老]" {
+		t.Fatalf("after swap path = %v", got)
+	}
+
+	if code, _ := getLineage(t, srv, intruder, projectID); code != http.StatusNotFound {
+		t.Fatalf("other user: %d", code)
+	}
+}

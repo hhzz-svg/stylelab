@@ -13,6 +13,7 @@ import type {
   GraphNode,
   Job,
   LLMKey,
+  Lineage,
   Me,
   OutlineChapterItem,
   ParentRef,
@@ -355,6 +356,9 @@ export const api = {
     request<{ ok: boolean }>(`/api/projects/${projectId}/graph/edges/${edgeId}`, {
       method: 'DELETE',
     }),
+
+  graphLineage: (projectId: string) =>
+    request<Lineage>(`/api/projects/${projectId}/graph/lineage`),
 
   graphAnalysis: (projectId: string) =>
     request<GraphAnalysis>(`/api/projects/${projectId}/graph/analysis`),

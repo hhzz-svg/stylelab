@@ -69,6 +69,32 @@ export type GraphAnalysis = {
   modularity: number
 }
 
+/** A node of the lineage forest (see insight.BuildLineage). */
+export type LineageNode = {
+  id: string
+  /** A faction named on characters but missing from the graph, or 未归属. */
+  virtual: boolean
+  name: string
+  kind: string
+  faction: string
+  /** How it hangs from its parent; '' for faction membership. */
+  relation: string
+  /** Horizontal position in sibling-gap units, and the level. */
+  x: number
+  depth: number
+  children: LineageNode[]
+  /** Other superiors, drawn dashed. */
+  extra_parents: string[]
+}
+
+export type Lineage = {
+  roots: LineageNode[]
+  /** Loops of superiors; one link of each was dropped. */
+  cycles: string[][]
+  width: number
+  depth: number
+}
+
 /** The newest successful result of a studio job, as saved in the jobs table. */
 export type StudioLatest<T> = {
   job_id: string

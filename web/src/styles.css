@@ -4601,3 +4601,157 @@ div.chapter-neighbor-state {
 .link-btn:hover {
   color: var(--gold-hi);
 }
+
+/* Graph views: relationship network / lineage tree */
+.view-switch {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius-sm);
+}
+
+.view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+
+.view-tab:hover {
+  color: var(--ink);
+}
+
+.view-tab.active {
+  color: var(--gold-hi);
+  background: rgba(247, 203, 104, 0.15);
+  border-color: rgba(247, 203, 104, 0.35);
+  font-weight: 600;
+}
+
+.incident-edge-actions {
+  display: flex;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.lineage-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+}
+
+.lineage-scroll {
+  flex: 1;
+  min-height: 520px;
+  overflow: auto;
+  background: radial-gradient(circle at top, rgba(16, 24, 39, 0.7) 0%, rgba(7, 10, 15, 0.95) 100%);
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius-xl);
+  box-shadow: inset 0 2px 20px rgba(0, 0, 0, 0.6);
+}
+
+.lineage-empty {
+  padding: 2rem;
+  text-align: center;
+}
+
+.lineage-svg {
+  display: block;
+}
+
+.lineage-link {
+  fill: none;
+  stroke: var(--line-hi);
+  stroke-width: 1.2;
+}
+
+.lineage-link.ranked {
+  stroke: var(--gold);
+  stroke-width: 1.6;
+}
+
+.lineage-extra {
+  fill: none;
+  stroke: var(--jade-hi);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+}
+
+.lineage-node {
+  cursor: pointer;
+}
+
+.lineage-node rect {
+  fill: rgba(14, 20, 31, 0.95);
+  stroke: var(--line-hi);
+  stroke-width: 1.2;
+  transition: stroke var(--dur) var(--ease);
+}
+
+.lineage-node:hover rect {
+  stroke: var(--gold-hi);
+}
+
+.lineage-node text {
+  fill: var(--ink);
+  font-size: 13px;
+}
+
+.lineage-node.faction rect {
+  fill: rgba(247, 203, 104, 0.1);
+  stroke: var(--gold);
+}
+
+.lineage-node.faction text {
+  fill: var(--gold-hi);
+  font-weight: 600;
+}
+
+.lineage-node.virtual {
+  cursor: default;
+}
+
+.lineage-node.virtual rect {
+  fill: transparent;
+  stroke: var(--ink-faint);
+  stroke-dasharray: 4 3;
+}
+
+.lineage-node.virtual text {
+  fill: var(--ink-soft);
+}
+
+.lineage-node text.lineage-relation {
+  fill: var(--gold);
+  font-size: 11px;
+  /* A halo in the canvas colour, so the label reads over the link line. */
+  paint-order: stroke;
+  stroke: var(--sea-2);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.lineage-warning {
+  padding: 0.6rem 0.9rem;
+  font-size: 0.82rem;
+  color: var(--cinnabar-hi);
+  background: var(--cinnabar-faint);
+  border: 1px solid var(--cinnabar-glow);
+  border-radius: var(--radius-sm);
+}
+
+.lineage-warning p {
+  margin: 0;
+}

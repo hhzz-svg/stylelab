@@ -78,22 +78,27 @@ func LoadWorld(ctx context.Context, st *store.Store, projectID string) (World, e
 	return w, rows.Err()
 }
 
-// Graph is the world as an undirected weighted graph, each relation
-// weighted by its strength.
-func (w World) Graph() *insight.Graph {
+func (w World) nodeIDs() []string {
 	ids := make([]string, len(w.Nodes))
 	for i, n := range w.Nodes {
 		ids[i] = n.ID
 	}
+	return ids
+}
+
+// graphEdges are the drawn relations, each weighted by its strength.
+func (w World) graphEdges() []insight.Edge {
 	edges := make([]insight.Edge, len(w.Links))
 	for i, l := range w.Links {
 		edges[i] = insight.Edge{Source: l.SourceID, Target: l.TargetID, Weight: l.Strength}
 	}
-	return insight.NewGraph(ids, edges)
+	return edges
 }
 
 // Analysis is what GET .../graph/analysis returns.
 type Analysis struct {
+	// Weights says which edges the analysis ran on: graph, text or both.
+	Weights   string             `json:"weights"`
 	NodeCount int                `json:"node_count"`
 	EdgeCount int                `json:"edge_count"`
 	Ranking   []insight.NodeRank `json:"ranking"`
@@ -124,16 +129,30 @@ type Outlier struct {
 	Faction string `json:"faction"`
 }
 
-// Analyze runs the graph analyses over a project's world.
-func Analyze(ctx context.Context, st *store.Store, projectID string) (Analysis, error) {
+// Analyze runs the graph analyses over a project's world. weights picks the
+// edges: the drawn relations, co-occurrence in the prose, or both summed.
+func Analyze(ctx context.Context, st *store.Store, projectID, weights string) (Analysis, error) {
 	w, err := LoadWorld(ctx, st, projectID)
 	if err != nil {
 		return Analysis{}, err
 	}
-	g := w.Graph()
+	var edges []insight.Edge
+	if weights != WeightsText {
+		edges = append(edges, w.graphEdges()...)
+	}
+	if weights != WeightsGraph {
+		written, err := LoadWritten(ctx, st, projectID)
+		if err != nil {
+			return Analysis{}, err
+		}
+		co := insight.Cooccur(w.coEntities(), coChapters(written), 0)
+		edges = append(edges, textEdges(co.Pairs)...)
+	}
+	g := insight.NewGraph(w.nodeIDs(), edges)
 	ranking := insight.RankNodes(g)
 	part := insight.Louvain(g)
 	return Analysis{
+		Weights:     weights,
 		NodeCount:   g.Len(),
 		EdgeCount:   g.EdgeCount(),
 		Ranking:     ranking,

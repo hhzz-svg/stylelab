@@ -205,7 +205,10 @@ button {
 
 .app-shell.authed {
   display: grid;
-  grid-template-columns: 264px 1fr;
+  /* minmax(0, ...): a bare 1fr has a min-content floor, so one wide child
+     (the appearance timeline's table) widened the whole page instead of
+     scrolling inside its own box. */
+  grid-template-columns: 264px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -3612,7 +3615,7 @@ input[type="range"]::-moz-range-thumb {
 /* Responsive Media Queries */
 @media (max-width: 1024px) {
   .app-shell.authed {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .sidebar {
     position: fixed;
@@ -4754,4 +4757,144 @@ div.chapter-neighbor-state {
 
 .lineage-warning p {
   margin: 0;
+}
+
+/* Analysis basis: drawn relations / prose co-occurrence / both */
+.weights-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+.weights-switch > span {
+  margin-right: 0.2rem;
+}
+
+.weights-option {
+  padding: 0.2rem 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.weights-option.active {
+  color: var(--gold-hi);
+  background: var(--gold-faint);
+  border-color: var(--line-hi);
+}
+
+/* Appearance timeline */
+.timeline-view {
+  flex: 1;
+  display: flex;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.timeline-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.timeline-main > .insight-note {
+  margin: 0;
+}
+
+.timeline-scroll {
+  flex: 1;
+  min-height: 420px;
+  overflow: auto;
+  background: rgba(7, 10, 15, 0.8);
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius-lg);
+}
+
+.timeline-grid {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 0.72rem;
+}
+
+.timeline-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-width: 16px;
+  padding: 0.3rem 0;
+  background: var(--sea-2);
+  color: var(--ink-faint);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-grid .timeline-name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 7.5rem;
+  padding: 0.2rem 0.6rem;
+  background: var(--sea-2);
+  text-align: left;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.timeline-grid thead .timeline-name {
+  z-index: 3;
+}
+
+.timeline-grid td {
+  width: 16px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: 3px;
+}
+
+.timeline-total {
+  margin-left: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-side {
+  align-self: flex-start;
+  max-height: 100%;
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.suggest-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+@media (max-width: 1000px) {
+  .timeline-view {
+    flex-direction: column;
+  }
+  .timeline-side {
+    align-self: stretch;
+  }
 }

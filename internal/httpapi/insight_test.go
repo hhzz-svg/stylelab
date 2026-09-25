@@ -216,3 +216,160 @@ func TestGraphLineageFollowsMastersAndSwaps(t *testing.T) {
 		t.Fatalf("other user: %d", code)
 	}
 }
+
+// writeBook fills a project with chapters whose prose is the given
+// paragraphs, one chapter per entry.
+func writeBook(t *testing.T, srv *httptest.Server, c *http.Client, projectID string, chapters []string) {
+	t.Helper()
+	for i, body := range chapters {
+		id := createChapter(t, srv, c, projectID, fmt.Sprintf("第%d章", i+1), "梗概")
+		raw, _ := json.Marshal(map[string]string{"body": body})
+		resp := patchJSON(t, c, srv.URL+"/api/chapters/"+id, string(raw))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("patch chapter body: %d", resp.StatusCode)
+		}
+	}
+}
+
+func TestGraphCooccurrenceReport(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "cooccur@example.com")
+	intruder := registerUser(t, srv, "cooccur-intruder@example.com")
+	projectID := createProject(t, srv, owner, "共现")
+
+	_, lin := saveNode(t, srv, owner, projectID, `{"name":"林远","details":{"aliases":["林师兄"]}}`)
+	_, su := saveNode(t, srv, owner, projectID, `{"name":"苏晚"}`)
+	_, mo := saveNode(t, srv, owner, projectID, `{"name":"魔尊"}`)
+	chapters := []string{
+		"林远与苏晚同行。\n魔尊闭关，魔尊不语，魔尊入定。",
+		"林师兄护着苏晚。\n\n魔尊出关，魔尊冷笑。",
+		"苏晚替林远包扎。",
+	}
+	for i := 0; i < 10; i++ {
+		chapters = append(chapters, "林远赶路。")
+	}
+	writeBook(t, srv, owner, projectID, chapters)
+	createChapter(t, srv, owner, projectID, "未写的章", "还没有正文") // no body: skipped
+
+	type report struct {
+		Chapters      []int    `json:"chapters"`
+		ChapterTitles []string `json:"chapter_titles"`
+		UnitKind      string   `json:"unit_kind"`
+		Appearances   []struct {
+			ID         string `json:"id"`
+			PerChapter []int  `json:"per_chapter"`
+			Total      int    `json:"total"`
+		} `json:"appearances"`
+		Pairs []struct {
+			A, B  string
+			Count int `json:"count"`
+		} `json:"pairs"`
+		Absent []struct {
+			ID            string `json:"id"`
+			ChaptersSince int    `json:"chapters_since"`
+		} `json:"absent"`
+		Suggestions []struct {
+			A, B  string
+			Count int `json:"count"`
+		} `json:"suggestions"`
+	}
+	get := func(c *http.Client, query string) (int, report) {
+		resp := mustGet(t, c, srv.URL+"/api/projects/"+projectID+"/graph/cooccurrence"+query)
+		defer resp.Body.Close()
+		var r report
+		if resp.StatusCode == http.StatusOK {
+			if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+		}
+		return resp.StatusCode, r
+	}
+
+	code, r := get(owner, "")
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	if len(r.Chapters) != 13 || len(r.ChapterTitles) != 13 || r.ChapterTitles[0] != "第1章" || r.UnitKind != "paragraph" {
+		t.Fatalf("chapters %v titles %v unit %q", r.Chapters, r.ChapterTitles, r.UnitKind)
+	}
+	totals := map[string]int{}
+	for _, a := range r.Appearances {
+		totals[a.ID] = a.Total
+		if a.ID == lin && (a.PerChapter[1] != 1 || a.PerChapter[12] != 1) {
+			t.Fatalf("林远 per chapter = %v (the alias counts)", a.PerChapter)
+		}
+	}
+	if totals[lin] != 13 || totals[su] != 3 || totals[mo] != 5 {
+		t.Fatalf("totals = %v", totals)
+	}
+	pairKey := func(a, b string) string {
+		if a > b {
+			a, b = b, a
+		}
+		return a + "|" + b
+	}
+	if len(r.Pairs) != 1 || pairKey(r.Pairs[0].A, r.Pairs[0].B) != pairKey(lin, su) || r.Pairs[0].Count != 3 {
+		t.Fatalf("pairs = %+v", r.Pairs)
+	}
+	if len(r.Suggestions) != 1 || r.Suggestions[0].Count != 3 {
+		t.Fatalf("suggestions = %+v", r.Suggestions)
+	}
+	if len(r.Absent) != 1 || r.Absent[0].ID != mo || r.Absent[0].ChaptersSince != 11 {
+		t.Fatalf("absent = %+v", r.Absent)
+	}
+
+	// Once the author draws the relation, it is no longer suggested.
+	saveEdge(t, srv, owner, projectID, fmt.Sprintf(`{"source_id":%q,"target_id":%q,"relation":"同门"}`, lin, su))
+	if _, r = get(owner, ""); len(r.Suggestions) != 0 {
+		t.Fatalf("suggestions after drawing = %+v", r.Suggestions)
+	}
+	if _, r = get(owner, "?absent_after=12"); len(r.Absent) != 0 {
+		t.Fatalf("absent_after=12: %+v", r.Absent)
+	}
+	if code, _ := get(owner, "?absent_after=abc"); code != http.StatusBadRequest {
+		t.Fatalf("bad absent_after: %d", code)
+	}
+	if code, _ := get(intruder, ""); code != http.StatusNotFound {
+		t.Fatalf("other user: %d", code)
+	}
+}
+
+func TestGraphAnalysisWeightsFromText(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "weights@example.com")
+	projectID := createProject(t, srv, owner, "边权")
+
+	_, lin := saveNode(t, srv, owner, projectID, `{"name":"林远"}`)
+	saveNode(t, srv, owner, projectID, `{"name":"苏晚"}`)
+	saveNode(t, srv, owner, projectID, `{"name":"赵四"}`)
+	// No relations drawn: only the prose ties them. 林远 shares three
+	// paragraphs with each of the others; 苏晚 and 赵四 share one, below
+	// the bar, so they are not tied.
+	writeBook(t, srv, owner, projectID, []string{
+		"林远见苏晚。\n林远见赵四。", "林远与苏晚。\n赵四寻林远。", "林远、苏晚、赵四同席。",
+	})
+
+	get := func(q string) (int, analysisView) {
+		resp := mustGet(t, owner, srv.URL+"/api/projects/"+projectID+"/graph/analysis"+q)
+		defer resp.Body.Close()
+		var a analysisView
+		if resp.StatusCode == http.StatusOK {
+			_ = json.NewDecoder(resp.Body).Decode(&a)
+		}
+		return resp.StatusCode, a
+	}
+	if _, a := get(""); a.EdgeCount != 0 {
+		t.Fatalf("graph mode should see no edges: %d", a.EdgeCount)
+	}
+	_, a := get("?weights=text")
+	if a.EdgeCount != 2 || a.Ranking[0].ID != lin || a.Ranking[0].Role != "core" {
+		t.Fatalf("text mode: %d edges, top %+v", a.EdgeCount, a.Ranking[0])
+	}
+	if code, _ := get("?weights=both"); code != http.StatusOK {
+		t.Fatalf("both: %d", code)
+	}
+	if code, _ := get("?weights=magic"); code != http.StatusBadRequest {
+		t.Fatalf("bad mode: %d", code)
+	}
+}

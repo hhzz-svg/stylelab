@@ -1,4 +1,5 @@
 import type {
+  AnalysisWeights,
   APIErrorBody,
   Asset,
   AuditReport,
@@ -7,6 +8,7 @@ import type {
   CardSummary,
   Chapter,
   ChapterSummary,
+  Cooccurrence,
   GraphAnalysis,
   GraphData,
   GraphEdge,
@@ -360,8 +362,11 @@ export const api = {
   graphLineage: (projectId: string) =>
     request<Lineage>(`/api/projects/${projectId}/graph/lineage`),
 
-  graphAnalysis: (projectId: string) =>
-    request<GraphAnalysis>(`/api/projects/${projectId}/graph/analysis`),
+  graphAnalysis: (projectId: string, weights: AnalysisWeights = 'graph') =>
+    request<GraphAnalysis>(`/api/projects/${projectId}/graph/analysis?weights=${weights}`),
+
+  graphCooccurrence: (projectId: string) =>
+    request<Cooccurrence>(`/api/projects/${projectId}/graph/cooccurrence`),
 
   extractGraph: (projectId: string, model?: string) =>
     request<{ job_id: string }>(`/api/projects/${projectId}/graph/extract`, {

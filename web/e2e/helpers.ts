@@ -36,3 +36,11 @@ export async function addEdge(page: Page, projectId: string, source: string, tar
   })
   expect(res.ok()).toBe(true)
 }
+
+/** Adds a chapter with the given prose. */
+export async function addChapter(page: Page, projectId: string, title: string, body: string) {
+  const ch = await page.request.post(`/api/projects/${projectId}/chapters`, { data: { title, brief: '梗概' } })
+  expect(ch.ok()).toBe(true)
+  const res = await page.request.patch(`/api/chapters/${(await ch.json()).id}`, { data: { body } })
+  expect(res.ok()).toBe(true)
+}

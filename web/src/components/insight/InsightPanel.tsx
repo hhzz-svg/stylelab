@@ -1,4 +1,4 @@
-import type { GraphAnalysis, GraphNode, NodeRole } from '../../types'
+import type { AnalysisWeights, GraphAnalysis, GraphNode, NodeRole } from '../../types'
 import { communityColor } from './palette'
 
 const ROLE_LABEL: Record<Exclude<NodeRole, ''>, string> = {
@@ -18,15 +18,23 @@ function modularityVerdict(q: number): string {
   return '关系网较松散，分群不明显'
 }
 
+const WEIGHT_OPTIONS: { value: AnalysisWeights; label: string; title: string }[] = [
+  { value: 'graph', label: '图谱关系', title: '按你画出的关系线计算' },
+  { value: 'text', label: '正文共现', title: '按人物在正文同一段落出现的次数计算' },
+  { value: 'both', label: '两者', title: '关系线与正文共现相加' },
+]
+
 type Props = {
   analysis: GraphAnalysis | null
+  weights: AnalysisWeights
+  onWeightsChange: (w: AnalysisWeights) => void
   nodes: GraphNode[]
   selectedId?: string
   onSelect: (nodeId: string) => void
 }
 
 /** 图谱洞察侧栏：由关系网络结构算出的重要度排行与自动发现的阵营。 */
-export default function InsightPanel({ analysis, nodes, selectedId, onSelect }: Props) {
+export default function InsightPanel({ analysis, weights, onWeightsChange, nodes, selectedId, onSelect }: Props) {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const ranked = (analysis?.ranking ?? []).filter((r) => r.degree > 0 && byId.has(r.id)).slice(0, TOP_N)
   const hubs = (analysis?.ranking ?? []).filter((r) => r.role === 'hub' && byId.has(r.id))
@@ -35,6 +43,22 @@ export default function InsightPanel({ analysis, nodes, selectedId, onSelect }: 
 
   return (
     <aside className="insight-panel" aria-label="图谱洞察">
+      <div className="weights-switch" role="radiogroup" aria-label="分析依据">
+        <span>依据</span>
+        {WEIGHT_OPTIONS.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={weights === o.value}
+            className={'weights-option' + (weights === o.value ? ' active' : '')}
+            title={o.title}
+            onClick={() => onWeightsChange(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
       <section className="insight-section">
         <h3 className="insight-head">重要度排行</h3>
         {ranked.length === 0 ? (

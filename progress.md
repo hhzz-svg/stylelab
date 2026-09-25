@@ -439,3 +439,21 @@ Plan (six phases, each committed and pushed on its own): importance ranking, com
 - Unit: relation vocabulary both ways; a sect with a master chain, a virtual faction and an unaffiliated character; parent preference order and extra parents; a three-node loop reported and cut; two factions naming each other; layout — three leaves under a parent at 0/1/2 with the parent at 1, two leaves between two wide subtrees spread evenly (checked to fail with the shift-spreading disabled), 50 random trees keep order, centring and one-unit spacing, and forests do not overlap.
 - Route: 青云宗 → 赵长老 → 林远; swapping the edge puts 林远 on top; another user gets 404.
 - e2e: the master is drawn above the disciple with the 师徒 label, 魔门 appears as a virtual root, and ⇄ in the drawer flips them.
+
+## 2026-09-25 - Phase 4 — text co-occurrence
+
+### What was done
+- `insight.Matcher`: Aho–Corasick over runes, leftmost-longest and non-overlapping (林远山 is not also 林远), names under two characters dropped, a name shared by two entities kept by the first.
+- `insight.Cooccur`: per entity, mentions per chapter, units mentioning it, first and last chapter; per pair, shared units with Jaccard and PMI (pairs sharing one unit are noise and dropped); entities mentioned at least five times but absent for N chapters.
+- Aliases: `details.aliases` (list, or a string split on the usual separators), editable in the profile drawer; the extraction prompt asks for them.
+- `lore`: written chapters split into paragraphs; suggestions = pairs sharing three or more paragraphs with no relation drawn. `GET .../graph/cooccurrence?absent_after=`; `GET .../graph/analysis?weights=graph|text|both` feeds the prose ties (normalised so the strongest weighs as much as one drawn relation) into PageRank, betweenness and Louvain.
+- Graph page: 出场时间线 tab — heat map (sticky names and chapter numbers), 久未出场, 潜在关系 with a one-click 建立关系; the insight panel gains a 图谱关系 / 正文共现 / 两者 switch.
+
+### Found while testing
+- **Any wide content widened the whole app.** The app grid's column was `1fr`, whose minimum is the content's min-content width, so a 60-chapter heat map pushed the page 354px past the viewport and the header off screen. Now `minmax(0, 1fr)`; an e2e test fails with the old value.
+- Suggested pairs were shown in id order ("苏晚 × 林远"); the more-mentioned one now comes first, and is the source of the drawn relation.
+
+### Testing
+- Unit: the matcher against the classic he/she/hers case, rune offsets, and brute force over a mixed text; co-occurrence counts, Jaccard and PMI by hand, the absence threshold both ways, empty input; alias parsing and paragraph splitting.
+- Route: the report counts aliases, skips unwritten chapters, lists the one pair and the missing 魔尊, stops suggesting once the relation is drawn, and validates `absent_after`; text weighting finds edges where none are drawn; bad modes 400; another user 404.
+- e2e: aliases count in the heat map; adding a nickname in the drawer raises the count and surfaces the suggestion; 建立关系 draws it; 正文共现 ranks 林远 first.

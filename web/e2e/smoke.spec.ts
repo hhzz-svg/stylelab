@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { setup } from './helpers'
+import { addChapter, addNode, setup } from './helpers'
 
 // Each test pins a bug that shipped once and was only caught by hand in a
 // browser. Unit tests cannot see these: they are about layout and about
@@ -133,4 +133,20 @@ test('on a phone the opened sidebar sits above the page', async ({ page }) => {
   await settleAnimations(page)
   const inSidebar = await page.evaluate(() => !!document.elementFromPoint(130, 400)?.closest('.sidebar'))
   expect(inSidebar).toBe(true)
+})
+
+test('a wide appearance timeline scrolls inside its box, not the page', async ({ page }) => {
+  // The app grid's 1fr column had a min-content floor: 60 chapter columns
+  // widened the whole page and pushed the header off screen.
+  const projectId = await setup(page)
+  await addNode(page, projectId, { name: '林远', kind: 'character' })
+  for (let i = 1; i <= 60; i++) await addChapter(page, projectId, `第${i}章`, '林远赶路。')
+  await page.goto(`/p/${projectId}/graph`)
+  await page.getByRole('tab', { name: /出场时间线/ }).click()
+  await expect(page.locator('.timeline-grid tbody tr')).toHaveCount(1)
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+  expect(overflow).toBeLessThanOrEqual(0)
+  const box = await page.locator('.timeline-scroll').evaluate((el) => ({ client: el.clientWidth, scroll: el.scrollWidth }))
+  expect(box.scroll).toBeGreaterThan(box.client)
 })

@@ -61,3 +61,33 @@ func TestDescribeCommunitiesHalfIsEnough(t *testing.T) {
 		t.Fatalf("got %+v", got[0])
 	}
 }
+
+func TestAliasesAcceptListOrString(t *testing.T) {
+	if got := Aliases(map[string]any{"aliases": []any{" 林师兄 ", "", 3, "远哥"}}); !reflect.DeepEqual(got, []string{"林师兄", "远哥"}) {
+		t.Fatalf("list: %v", got)
+	}
+	if got := Aliases(map[string]any{"aliases": "林师兄、远哥, 小林；林少"}); !reflect.DeepEqual(got, []string{"林师兄", "远哥", "小林", "林少"}) {
+		t.Fatalf("string: %v", got)
+	}
+	if got := Aliases(nil); got != nil {
+		t.Fatalf("none: %v", got)
+	}
+}
+
+func TestParagraphsDropBlankLines(t *testing.T) {
+	got := Paragraphs("  第一段。\n\n\t第二段。\r\n   \n第三段")
+	if !reflect.DeepEqual(got, []string{"第一段。", "第二段。", "第三段"}) {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestValidateWeights(t *testing.T) {
+	for in, want := range map[string]string{"": "graph", "graph": "graph", "text": "text", " both ": "both"} {
+		if got, err := ValidateWeights(in); err != nil || got != want {
+			t.Errorf("%q -> %q, %v", in, got, err)
+		}
+	}
+	if _, err := ValidateWeights("pagerank"); err == nil {
+		t.Error("unknown mode accepted")
+	}
+}

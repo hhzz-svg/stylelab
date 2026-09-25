@@ -61,12 +61,48 @@ export type Community = {
   outliers: { id: string; faction: string }[]
 }
 
+/** Which edges an analysis ran on. */
+export type AnalysisWeights = 'graph' | 'text' | 'both'
+
 export type GraphAnalysis = {
+  weights: AnalysisWeights
   node_count: number
   edge_count: number
   ranking: NodeRank[]
   communities: Community[]
   modularity: number
+}
+
+/** One entity's mentions across the written chapters. */
+export type Appearance = {
+  id: string
+  /** Mentions per chapter, aligned with Cooccurrence.chapters. */
+  per_chapter: number[]
+  total: number
+  units: number
+  first_seq: number
+  last_seq: number
+}
+
+/** How often two entities share a paragraph (or scene). */
+export type CoPair = {
+  a: string
+  b: string
+  count: number
+  jaccard: number
+  pmi: number
+}
+
+export type Cooccurrence = {
+  chapters: number[]
+  chapter_titles: string[]
+  units: number
+  unit_kind: 'paragraph' | 'scene'
+  appearances: Appearance[]
+  pairs: CoPair[]
+  absent: { id: string; last_seq: number; chapters_since: number }[]
+  /** Frequent pairs with no relation drawn in the graph. */
+  suggestions: CoPair[]
 }
 
 /** A node of the lineage forest (see insight.BuildLineage). */
@@ -325,6 +361,8 @@ export type GraphNode = {
     realm?: string
     temperament?: string
     secrets?: string
+    /** Other names the prose uses for it. */
+    aliases?: string[]
     [key: string]: any
   }
   x: number

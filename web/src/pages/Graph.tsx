@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  CalendarRange,
   Crown,
   GitFork,
   Network,
@@ -21,10 +22,11 @@ import Crumb from '../components/Crumb'
 import EntityDrawer from '../components/EntityDrawer'
 import InsightPanel from '../components/insight/InsightPanel'
 import LineageTree from '../components/insight/LineageTree'
+import AppearanceTimeline from '../components/insight/AppearanceTimeline'
 import { communityColor } from '../components/insight/palette'
 import Skeleton from '../components/Skeleton'
 import { usePageTitle } from '../hooks'
-import type { GraphAnalysis, GraphData, GraphExtractResult, GraphNode, GraphNodeKind, Job } from '../types'
+import type { AnalysisWeights, GraphAnalysis, GraphData, GraphExtractResult, GraphNode, GraphNodeKind, Job } from '../types'
 
 // 颜色映射池
 const FACTION_COLORS = [
@@ -73,7 +75,8 @@ export default function Graph() {
   const [showInsight, setShowInsight] = useState(true)
   const [sizeByImportance, setSizeByImportance] = useState(true)
   const [colorByCommunity, setColorByCommunity] = useState(false)
-  const [view, setView] = useState<'network' | 'lineage'>('network')
+  const [view, setView] = useState<'network' | 'lineage' | 'timeline'>('network')
+  const [weights, setWeights] = useState<AnalysisWeights>('graph')
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
   const [extractJobId, setExtractJobId] = useState('')
@@ -117,9 +120,7 @@ export default function Graph() {
       setGraphData(data)
       initSimulation(data.nodes)
       setError('')
-      // The analysis is derived from the graph; failing it must not blank
-      // the graph itself.
-      api.graphAnalysis(projectId).then(setAnalysis, () => setAnalysis(null))
+      // The analysis (see the effect below) is derived from the graph.
     } catch (err) {
       setError(err instanceof APIError ? err.message : '加载关系图谱失败')
     } finally {
@@ -421,6 +422,24 @@ export default function Graph() {
 
   const filteredNodeIdSet = useMemo(() => new Set(filteredNodes.map((n) => n.id)), [filteredNodes])
 
+  // Re-run the analysis when the graph or the weights change. Failing it
+  // must not blank the graph itself.
+  useEffect(() => {
+    if (!projectId || !graphData) return
+    let live = true
+    api.graphAnalysis(projectId, weights).then(
+      (a) => {
+        if (live) setAnalysis(a)
+      },
+      () => {
+        if (live) setAnalysis(null)
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [projectId, graphData, weights])
+
   // PageRank score (0-100) per node, for sizing.
   const scoreById = useMemo(() => {
     const m = new Map<string, number>()
@@ -524,6 +543,15 @@ export default function Graph() {
           >
             <GitFork size={14} /> 谱系树
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'timeline'}
+            className={'view-tab' + (view === 'timeline' ? ' active' : '')}
+            onClick={() => setView('timeline')}
+          >
+            <CalendarRange size={14} /> 出场时间线
+          </button>
         </div>
         {view === 'network' ? (
         <>
@@ -618,7 +646,21 @@ export default function Graph() {
         ) : null}
       </div>
 
-      {view === 'lineage' ? (
+      {view === 'timeline' ? (
+        <AppearanceTimeline
+          projectId={projectId}
+          nodes={graphData?.nodes ?? []}
+          version={graphData}
+          onGraphChanged={() => void loadGraph()}
+          onSelect={(nodeId) => {
+            const node = graphData?.nodes.find((n) => n.id === nodeId)
+            if (node) {
+              setSelectedNode(node)
+              setDrawerOpen(true)
+            }
+          }}
+        />
+      ) : view === 'lineage' ? (
         <LineageTree
           projectId={projectId}
           version={graphData}
@@ -827,6 +869,8 @@ export default function Graph() {
       {showInsight && nodes.length > 0 ? (
         <InsightPanel
           analysis={analysis}
+          weights={weights}
+          onWeightsChange={setWeights}
           nodes={graphData?.nodes ?? []}
           selectedId={selectedNode?.id}
           onSelect={(nodeId) => {

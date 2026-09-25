@@ -49,6 +49,9 @@ export default function EntityDrawer({
   const [realm, setRealm] = useState<string>(node.details?.realm || '')
   const [temperament, setTemperament] = useState<string>(node.details?.temperament || '')
   const [secrets, setSecrets] = useState<string>(node.details?.secrets || '')
+  const [aliases, setAliases] = useState<string>(
+    Array.isArray(node.details?.aliases) ? node.details.aliases.join('、') : node.details?.aliases || '',
+  )
   const [saving, setSaving] = useState(false)
 
   // Add edge state
@@ -80,6 +83,11 @@ export default function EntityDrawer({
           realm,
           temperament,
           secrets,
+          // Other names the prose uses; the co-occurrence analysis counts them.
+          aliases: aliases
+            .split(/[,，、;；/\s]+/)
+            .map((a) => a.trim())
+            .filter(Boolean),
         },
       })
       notify(`已保存「${name}」档案`, 'success')
@@ -214,6 +222,15 @@ export default function EntityDrawer({
                 value={faction}
                 onChange={(e) => setFaction(e.target.value)}
                 placeholder="例如：落云宗、魔道六宗、天南皇室"
+              />
+            </label>
+
+            <label>
+              别名 / 称号
+              <input
+                value={aliases}
+                onChange={(e) => setAliases(e.target.value)}
+                placeholder="正文里的其他叫法，用顿号分隔，如：林师兄、远哥"
               />
             </label>
 

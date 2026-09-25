@@ -81,6 +81,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/projects/{id}/graph/extract", s.handleExtractGraph)
 	s.mux.HandleFunc("GET /api/projects/{id}/graph/analysis", s.handleGraphAnalysis)
 	s.mux.HandleFunc("GET /api/projects/{id}/graph/lineage", s.handleGraphLineage)
+	s.mux.HandleFunc("GET /api/projects/{id}/graph/cooccurrence", s.handleGraphCooccurrence)
 	s.mux.HandleFunc("POST /api/projects/{id}/outline/generate", s.handleGenerateOutline)
 	s.mux.HandleFunc("POST /api/projects/{id}/outline/import", s.handleImportOutline)
 	s.mux.HandleFunc("POST /api/chapters/{id}/branch-simulate", s.handleBranchSimulate)

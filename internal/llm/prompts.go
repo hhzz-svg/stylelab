@@ -241,7 +241,8 @@ func GraphExtractSystem() string {
       "details": {
         "realm": "当前境界/等级（若适用）",
         "temperament": "性格/脾气与为人准则",
-        "secrets": "秘密/动机/底牌"
+        "secrets": "秘密/动机/底牌",
+        "aliases": ["正文里对此实体的其他叫法：别名、称号、昵称（如：林师兄、远哥）"]
       }
     }
   ],

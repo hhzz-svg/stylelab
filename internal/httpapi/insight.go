@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 
+	"stylelab/internal/insight"
 	"stylelab/internal/lore"
 )
 
@@ -36,7 +38,12 @@ func (s *Server) handleGraphAnalysis(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	out, err := lore.Analyze(r.Context(), s.st, projectID)
+	weights, err := lore.ValidateWeights(r.URL.Query().Get("weights"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid", trimInvalid(err))
+		return
+	}
+	out, err := lore.Analyze(r.Context(), s.st, projectID, weights)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
 		return
@@ -51,6 +58,30 @@ func (s *Server) handleGraphLineage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := lore.Lineage(r.Context(), s.st, projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleGraphCooccurrence reports who appears where in the written
+// chapters, who shares paragraphs with whom, and who has been gone a while.
+func (s *Server) handleGraphCooccurrence(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := s.ownedProjectForInsight(w, r)
+	if !ok {
+		return
+	}
+	absentAfter := insight.DefaultAbsentAfter
+	if raw := r.URL.Query().Get("absent_after"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 1000 {
+			writeError(w, http.StatusBadRequest, "invalid", "absent_after must be a whole number of chapters, 1-1000")
+			return
+		}
+		absentAfter = n
+	}
+	out, err := lore.Cooccurrence(r.Context(), s.st, projectID, absentAfter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
 		return

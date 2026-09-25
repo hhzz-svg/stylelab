@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { addEdge, addNode, setup } from './helpers'
+import { addChapter, addEdge, addNode, setup } from './helpers'
 
 // The graph analyses (internal/insight) as the author sees them.
 
@@ -83,4 +83,49 @@ test('lineage tree puts the master above the disciple, and a swap flips them', a
   await expect(page.locator('.entity-drawer-title')).toHaveText('林远')
   await page.getByTitle('调换方向（谱系树里上下级互换）').click()
   await expect.poll(async () => (await top(disciple)) < (await top(master))).toBe(true)
+})
+
+test('appearance timeline counts aliases, flags the absent and suggests missing relations', async ({ page }) => {
+  const projectId = await setup(page)
+  await addNode(page, projectId, { name: '林远', kind: 'character', details: { aliases: ['林师兄'] } })
+  const su = await addNode(page, projectId, { name: '苏晚', kind: 'character' })
+  await addNode(page, projectId, { name: '魔尊', kind: 'character' })
+  await addNode(page, projectId, { name: '赵四', kind: 'character' })
+  await addChapter(page, projectId, '初遇', '林远与苏晚同行。\n魔尊闭关，魔尊不语，魔尊入定。')
+  await addChapter(page, projectId, '护送', '林师兄护着苏晚。\n魔尊出关，魔尊冷笑。')
+  await addChapter(page, projectId, '疗伤', '晚儿替林远包扎。')
+  // 林远 travels with 赵四 twice, which makes him the hub of the prose.
+  for (let i = 4; i <= 13; i++) await addChapter(page, projectId, `赶路${i}`, i <= 5 ? '林远与赵四赶路。' : '林远赶路。')
+
+  await page.goto(`/p/${projectId}/graph`)
+  await page.getByRole('tab', { name: /出场时间线/ }).click()
+
+  const row = (name: string) => page.locator('.timeline-grid tbody tr', { hasText: name })
+  await expect(page.locator('.timeline-grid tbody tr')).toHaveCount(4)
+  // The alias 林师兄 counts for 林远 in chapter 2.
+  await expect(row('林远').locator('td').nth(1)).toHaveAttribute('data-count', '1')
+  await expect(row('苏晚').locator('.timeline-total')).toHaveText('2')
+  await expect(page.locator('.timeline-side')).toContainText('魔尊：已 11 章没有出场（最后在第 2 章）')
+  await expect(page.locator('.suggest-row')).toHaveCount(0)
+
+  // Give 苏晚 the nickname the prose uses: her count and her tie to 林远 grow.
+  await row('苏晚').getByRole('button', { name: '苏晚' }).click()
+  await page.getByPlaceholder(/正文里的其他叫法/).fill('晚儿')
+  await page.getByRole('button', { name: /保存档案/ }).click()
+  await expect(row('苏晚').locator('.timeline-total')).toHaveText('3')
+  await page.locator('.entity-drawer-wrap').click({ position: { x: 20, y: 20 } })
+
+  const suggestion = page.locator('.suggest-row')
+  await expect(suggestion).toHaveCount(1)
+  await expect(suggestion).toContainText('林远 × 苏晚')
+  await expect(suggestion).toContainText('同场 3 次')
+  await suggestion.getByRole('button', { name: '建立关系' }).click()
+  await expect(suggestion).toHaveCount(0)
+  const edges = (await (await page.request.get(`/api/projects/${projectId}/graph`)).json()).edges
+  expect(edges.some((e: { target_id: string; relation: string }) => e.target_id === su && e.relation === '同场')).toBe(true)
+
+  // In the network view, weighting by the prose makes 林远 the core.
+  await page.getByRole('tab', { name: /关系网/ }).click()
+  await page.getByRole('radio', { name: '正文共现' }).click()
+  await expect(page.locator('.insight-panel .rank-row').first()).toContainText('林远')
 })

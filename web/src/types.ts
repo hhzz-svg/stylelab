@@ -36,6 +36,26 @@ export type GraphExtractResult = {
   chapters_total: number
 }
 
+/** How a node sits in the relationship network (see internal/insight). */
+export type NodeRole = '' | 'core' | 'hub' | 'peripheral' | 'isolated'
+
+export type NodeRank = {
+  id: string
+  pagerank: number
+  /** PageRank scaled so the top node is 100. */
+  score: number
+  betweenness: number
+  degree: number
+  rank: number
+  role: NodeRole
+}
+
+export type GraphAnalysis = {
+  node_count: number
+  edge_count: number
+  ranking: NodeRank[]
+}
+
 /** The newest successful result of a studio job, as saved in the jobs table. */
 export type StudioLatest<T> = {
   job_id: string

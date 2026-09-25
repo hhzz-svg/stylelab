@@ -393,3 +393,21 @@ Each test was checked against the bug it guards by putting the bug back: `ToastH
 ### Known gaps
 - Still nothing run against a real model provider.
 - The smoke suite covers the fixed bugs, not every page.
+
+## 2026-09-25 - Task: Story structure and graph algorithms, phase 1 — importance ranking
+
+Plan (six phases, each committed and pushed on its own): importance ranking, community detection, lineage tree, text co-occurrence, scene segmentation, narrative tree (volume → chapter → scene).
+
+### What was done
+- New package `internal/insight`: pure, deterministic graph algorithms with no database or model access. `Graph` merges parallel edges, drops self-loops and sorts node ids so no result depends on input order.
+- Weighted **PageRank** (undirected, damping 0.85, dangling mass spread evenly) and **Brandes betweenness** (edge length = 1/weight, Dijkstra, ties split between equal shortest paths). Roles: core (top 10% by PageRank), hub (top 10% by betweenness outside the core), peripheral (one tie), isolated.
+- New package `internal/lore` loads a project's graph and runs the analyses; `GET /api/projects/{id}/graph/analysis` answers synchronously.
+- Graph page: insight panel with the top-ten ranking (click to open the profile) and the hubs; node size follows the score (toggle).
+
+### Found while testing
+- Nodes tied at the core cutoff were split by id: in two mirrored triangles only one of the two symmetric leads was "core". Nodes tied with the last one admitted are now admitted too.
+
+### Testing
+- Unit tests check PageRank and betweenness against hand-worked values (a path; a square where shortest paths split), a star, the bridge between two triangles, weight sensitivity, merging, empty and single-node graphs, and 20 shuffles of input order.
+- Route tests: a star ranks its centre first as core, its leaves peripheral, a lone node isolated; an empty project returns `[]`; another user gets 404.
+- e2e: the ranking lists the centre first with score 100; its node is drawn 1.3× and returns to 1× when the toggle is off; clicking the row opens the profile.

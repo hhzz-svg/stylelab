@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Crown,
   Network,
+  PanelRight,
   Plus,
   RotateCcw,
   Search,
@@ -15,9 +17,10 @@ import JobProgress from '../components/JobProgress'
 import { listJobs, registerJob, resultData } from '../jobs'
 import Crumb from '../components/Crumb'
 import EntityDrawer from '../components/EntityDrawer'
+import InsightPanel from '../components/insight/InsightPanel'
 import Skeleton from '../components/Skeleton'
 import { usePageTitle } from '../hooks'
-import type { GraphData, GraphExtractResult, GraphNode, GraphNodeKind, Job } from '../types'
+import type { GraphAnalysis, GraphData, GraphExtractResult, GraphNode, GraphNodeKind, Job } from '../types'
 
 // 颜色映射池
 const FACTION_COLORS = [
@@ -62,6 +65,9 @@ export default function Graph() {
   usePageTitle('人物与势力关系图谱')
 
   const [graphData, setGraphData] = useState<GraphData | null>(null)
+  const [analysis, setAnalysis] = useState<GraphAnalysis | null>(null)
+  const [showInsight, setShowInsight] = useState(true)
+  const [sizeByImportance, setSizeByImportance] = useState(true)
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
   const [extractJobId, setExtractJobId] = useState('')
@@ -105,6 +111,9 @@ export default function Graph() {
       setGraphData(data)
       initSimulation(data.nodes)
       setError('')
+      // The analysis is derived from the graph; failing it must not blank
+      // the graph itself.
+      api.graphAnalysis(projectId).then(setAnalysis, () => setAnalysis(null))
     } catch (err) {
       setError(err instanceof APIError ? err.message : '加载关系图谱失败')
     } finally {
@@ -406,6 +415,13 @@ export default function Graph() {
 
   const filteredNodeIdSet = useMemo(() => new Set(filteredNodes.map((n) => n.id)), [filteredNodes])
 
+  // PageRank score (0-100) per node, for sizing.
+  const scoreById = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of analysis?.ranking ?? []) m.set(r.id, r.score)
+    return m
+  }, [analysis])
+
   // Edges to render
   const edges = graphData?.edges ?? []
   const nodeMap = useMemo(() => {
@@ -534,10 +550,29 @@ export default function Graph() {
             <button className="icon-btn sm" type="button" onClick={resetView} title="重置视角">
               <RotateCcw size={15} />
             </button>
+            <button
+              className={'icon-btn sm' + (sizeByImportance ? ' on' : '')}
+              type="button"
+              onClick={() => setSizeByImportance((v) => !v)}
+              title="节点大小按重要度显示"
+              aria-pressed={sizeByImportance}
+            >
+              <Crown size={15} />
+            </button>
+            <button
+              className={'icon-btn sm' + (showInsight ? ' on' : '')}
+              type="button"
+              onClick={() => setShowInsight((v) => !v)}
+              title="图谱洞察"
+              aria-pressed={showInsight}
+            >
+              <PanelRight size={15} />
+            </button>
           </div>
         </div>
       </div>
 
+      <div className="graph-body">
       {/* SVG 力导向图谱主画布 */}
       <div
         className="graph-canvas-container"
@@ -656,6 +691,9 @@ export default function Graph() {
                   const isConnected = !connectedNodeIds || connectedNodeIds.has(node.id)
                   const color = getFactionColor(node.faction)
                   const icon = KIND_ICONS[node.kind] ?? '🧑'
+                  const score = scoreById.get(node.id)
+                  // 0.7x for the least connected up to 1.3x for the top node.
+                  const k = sizeByImportance && score !== undefined ? 0.7 + (0.6 * score) / 100 : 1
 
                   return (
                     <g
@@ -678,7 +716,7 @@ export default function Graph() {
                     >
                       {/* Faction glow ring */}
                       <circle
-                        r={24}
+                        r={24 * k}
                         fill={color}
                         fillOpacity={isHovered ? 0.25 : 0.12}
                         stroke={color}
@@ -690,7 +728,7 @@ export default function Graph() {
 
                       {/* Main node icon circle */}
                       <circle
-                        r={18}
+                        r={18 * k}
                         fill="rgba(14, 20, 31, 0.95)"
                         stroke={color}
                         strokeWidth={1.5}
@@ -698,7 +736,7 @@ export default function Graph() {
                       />
 
                       {/* Kind Emoji */}
-                      <text className="node-emoji" textAnchor="middle" dy="5" fontSize="13">
+                      <text className="node-emoji" textAnchor="middle" dy={5 * k} fontSize={13 * k}>
                         {icon}
                       </text>
 
@@ -706,7 +744,7 @@ export default function Graph() {
                       <text
                         className="node-name-label"
                         textAnchor="middle"
-                        dy="36"
+                        dy={18 * k + 18}
                         fill={isHovered ? 'var(--gold-hi)' : '#f1f5f9'}
                       >
                         {node.name}
@@ -714,7 +752,7 @@ export default function Graph() {
 
                       {/* Faction Tag */}
                       {node.faction && (
-                        <text className="node-faction-label" textAnchor="middle" dy="49" fill={color}>
+                        <text className="node-faction-label" textAnchor="middle" dy={18 * k + 31} fill={color}>
                           {node.faction}
                         </text>
                       )}
@@ -725,6 +763,21 @@ export default function Graph() {
             </g>
           </svg>
         )}
+      </div>
+      {showInsight && nodes.length > 0 ? (
+        <InsightPanel
+          analysis={analysis}
+          nodes={graphData?.nodes ?? []}
+          selectedId={selectedNode?.id}
+          onSelect={(nodeId) => {
+            const node = graphData?.nodes.find((n) => n.id === nodeId)
+            if (node) {
+              setSelectedNode(node)
+              setDrawerOpen(true)
+            }
+          }}
+        />
+      ) : null}
       </div>
 
       {/* 侧边人物档案抽屉 */}

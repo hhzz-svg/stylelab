@@ -4360,3 +4360,176 @@ div.chapter-neighbor-state {
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
+
+/* ==========================================================================
+   GRAPH INSIGHT -- analyses from internal/insight shown beside the graph
+   ========================================================================== */
+
+.icon-btn.on {
+  color: var(--gold-hi);
+  background: var(--gold-faint);
+  border-color: var(--line-hi);
+}
+
+.graph-body {
+  flex: 1;
+  display: flex;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.graph-body > .graph-canvas-container {
+  min-width: 0;
+}
+
+.insight-panel {
+  width: 300px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 1rem;
+  background: rgba(14, 20, 31, 0.6);
+  border: 1px solid var(--line-glass);
+  border-radius: var(--radius-xl);
+}
+
+.insight-section + .insight-section {
+  margin-top: 1.2rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line-dim);
+}
+
+.insight-head {
+  margin: 0 0 0.7rem;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  color: var(--gold-hi);
+}
+
+.insight-note {
+  margin: 0.7rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ink-faint);
+}
+
+.insight-note .role-chip {
+  margin-right: 0.35rem;
+}
+
+.rank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.rank-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr) auto;
+  grid-template-areas:
+    'no name chip'
+    'no bar score';
+  align-items: center;
+  column-gap: 0.5rem;
+  row-gap: 0.25rem;
+  padding: 0.45rem 0.55rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+.rank-row:hover {
+  background: var(--panel-subtle);
+  border-color: var(--line-glass);
+}
+
+.rank-row.active {
+  background: var(--gold-faint);
+  border-color: var(--line-hi);
+}
+
+.rank-no {
+  grid-area: no;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+.rank-name {
+  grid-area: name;
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-row > .role-chip {
+  grid-area: chip;
+}
+
+.rank-bar {
+  grid-area: bar;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.rank-fill {
+  display: block;
+  height: 100%;
+  background: var(--gold-gradient);
+  border-radius: 2px;
+}
+
+.rank-score {
+  grid-area: score;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.role-chip {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  border-radius: 999px;
+  border: 1px solid var(--line-glass);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.role-chip.core {
+  color: var(--gold-hi);
+  border-color: var(--line-hi);
+  background: var(--gold-faint);
+}
+
+.role-chip.hub {
+  color: var(--jade-hi);
+  border-color: var(--jade-glow);
+  background: var(--jade-faint);
+}
+
+.role-chip.peripheral,
+.role-chip.isolated {
+  color: var(--ink-faint);
+}
+
+@media (max-width: 1000px) {
+  .graph-body {
+    flex-direction: column;
+  }
+  .insight-panel {
+    width: auto;
+    max-height: 360px;
+  }
+}

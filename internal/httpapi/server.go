@@ -79,6 +79,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/projects/{id}/graph/edges", s.handleSaveGraphEdge)
 	s.mux.HandleFunc("DELETE /api/projects/{id}/graph/edges/{edgeId}", s.handleDeleteGraphEdge)
 	s.mux.HandleFunc("POST /api/projects/{id}/graph/extract", s.handleExtractGraph)
+	s.mux.HandleFunc("GET /api/projects/{id}/graph/analysis", s.handleGraphAnalysis)
 	s.mux.HandleFunc("POST /api/projects/{id}/outline/generate", s.handleGenerateOutline)
 	s.mux.HandleFunc("POST /api/projects/{id}/outline/import", s.handleImportOutline)
 	s.mux.HandleFunc("POST /api/chapters/{id}/branch-simulate", s.handleBranchSimulate)

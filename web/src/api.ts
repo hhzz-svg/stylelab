@@ -7,6 +7,7 @@ import type {
   CardSummary,
   Chapter,
   ChapterSummary,
+  GraphAnalysis,
   GraphData,
   GraphEdge,
   GraphNode,
@@ -354,6 +355,9 @@ export const api = {
     request<{ ok: boolean }>(`/api/projects/${projectId}/graph/edges/${edgeId}`, {
       method: 'DELETE',
     }),
+
+  graphAnalysis: (projectId: string) =>
+    request<GraphAnalysis>(`/api/projects/${projectId}/graph/analysis`),
 
   extractGraph: (projectId: string, model?: string) =>
     request<{ job_id: string }>(`/api/projects/${projectId}/graph/extract`, {

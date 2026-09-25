@@ -1,30 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
-import { STUB_URL } from './env'
+import { setup } from './helpers'
 
 // Each test pins a bug that shipped once and was only caught by hand in a
 // browser. Unit tests cannot see these: they are about layout and about
 // what the user is told, not about what the API returns.
-
-/** Registers a fresh user with a project and a BYOK key pointed at the stub. */
-async function setup(page: Page, chapters = 0): Promise<string> {
-  const api = page.request
-  const email = `e2e-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`
-  expect((await api.post('/api/auth/register', { data: { email, password: 'password1' } })).ok()).toBe(true)
-  const project = await api.post('/api/projects', { data: { name: '冒烟测试' } })
-  expect(project.ok()).toBe(true)
-  const projectId = (await project.json()).id as string
-  for (let i = 1; i <= chapters; i++) {
-    const ch = await api.post(`/api/projects/${projectId}/chapters`, { data: { title: `章${i}`, brief: `第${i}章梗概` } })
-    expect(ch.ok()).toBe(true)
-    const patched = await api.patch(`/api/chapters/${(await ch.json()).id}`, { data: { body: '林远与苏晚同门学艺。' } })
-    expect(patched.ok()).toBe(true)
-  }
-  const key = await api.put('/api/me/llm-keys', {
-    data: { provider: 'chat', base_url: STUB_URL, api_key: 'sk-test-abcd' },
-  })
-  expect(key.ok()).toBe(true)
-  return projectId
-}
 
 /** Waits out entry and slide-in animations; spinners loop forever, so skip those. */
 async function settleAnimations(page: Page) {

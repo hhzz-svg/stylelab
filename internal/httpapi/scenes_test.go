@@ -236,3 +236,59 @@ func TestScenesRejectionsAndSplitAll(t *testing.T) {
 		}
 	}
 }
+
+func TestGraphPlacesWithTheirScenes(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "places@example.com")
+	intruder := registerUser(t, srv, "places-intruder@example.com")
+	projectID := createProject(t, srv, owner, "地理")
+
+	_, east := saveNode(t, srv, owner, projectID, `{"name":"东洲","kind":"location"}`)
+	_, mount := saveNode(t, srv, owner, projectID, `{"name":"青云山","kind":"location"}`)
+	_, library := saveNode(t, srv, owner, projectID, `{"name":"藏经阁","kind":"location","faction":"青云山"}`)
+	_, palace := saveNode(t, srv, owner, projectID, `{"name":"魔宫","kind":"location"}`)
+	saveNode(t, srv, owner, projectID, `{"name":"苏晚","kind":"character"}`)
+	saveEdge(t, srv, owner, projectID, fmt.Sprintf(`{"source_id":%q,"target_id":%q,"relation":"位于"}`, mount, east))
+
+	chapterID := createChapter(t, srv, owner, projectID, "第一章", "梗概")
+	setBody(t, srv, owner, chapterID, threeSceneBody)
+	resp := postJSON(t, owner, srv.URL+"/api/chapters/"+chapterID+"/scenes/split", `{}`)
+	resp.Body.Close()
+
+	get := func(c *http.Client) (int, map[string]json.RawMessage) {
+		r := mustGet(t, c, srv.URL+"/api/projects/"+projectID+"/graph/places")
+		defer r.Body.Close()
+		var body map[string]json.RawMessage
+		if r.StatusCode == http.StatusOK {
+			_ = json.NewDecoder(r.Body).Decode(&body)
+		}
+		return r.StatusCode, body
+	}
+	code, body := get(owner)
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	var roots []lineageNodeView
+	_ = json.Unmarshal(body["roots"], &roots)
+	if got := lineagePath(roots, "藏经阁"); fmt.Sprint(got) != "[东洲 青云山 藏经阁]" {
+		t.Fatalf("path = %v", got)
+	}
+	if got := lineagePath(roots, "苏晚"); got != nil {
+		t.Fatalf("a character in the geography: %v", got)
+	}
+	var scenes map[string][]struct {
+		ChapterID string `json:"chapter_id"`
+		Seq       int    `json:"seq"`
+		Index     int    `json:"index"`
+	}
+	_ = json.Unmarshal(body["scenes"], &scenes)
+	if s := scenes[library]; len(s) != 1 || s[0].ChapterID != chapterID || s[0].Seq != 1 || s[0].Index != 1 {
+		t.Fatalf("藏经阁 scenes = %+v", s)
+	}
+	if s := scenes[palace]; len(s) != 1 || s[0].Index != 2 {
+		t.Fatalf("魔宫 scenes = %+v", s)
+	}
+	if code, _ := get(intruder); code != http.StatusNotFound {
+		t.Fatalf("other user: %d", code)
+	}
+}

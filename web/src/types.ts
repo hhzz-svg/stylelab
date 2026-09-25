@@ -133,6 +133,18 @@ export type ChapterScenes = {
   stale: boolean
 }
 
+/** A scene set at a place (its main location). */
+export type PlaceScene = {
+  scene_id: string
+  chapter_id: string
+  seq: number
+  index: number
+  title: string
+}
+
+/** The geography: the place forest and the scenes set at each place. */
+export type Places = Lineage & { scenes: Record<string, PlaceScene[]> }
+
 /** A volume: the chapters from start_seq up to the next volume. */
 export type Volume = {
   id: string

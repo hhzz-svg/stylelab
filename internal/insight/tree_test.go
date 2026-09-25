@@ -262,3 +262,69 @@ func TestLayoutForestKeepsTreesApart(t *testing.T) {
 		t.Fatalf("width %v depth %d", width, depth)
 	}
 }
+
+// --- places ---------------------------------------------------------------
+
+func place(id, name, region string) TreeEntity {
+	return TreeEntity{ID: id, Name: name, Kind: "location", Faction: region}
+}
+
+func TestPlaceDirection(t *testing.T) {
+	for rel, want := range map[string]int{
+		"位于": -1, "坐落于": -1, "地处": -1, "属于": -1, "境内": -1,
+		"包含": 1, "下辖": 1, "管辖": 1,
+		"毗邻": 0, "通往": 0, "": 0,
+	} {
+		if got := PlaceDirection(rel); got != want {
+			t.Errorf("PlaceDirection(%q) = %d, want %d", rel, got, want)
+		}
+	}
+}
+
+func TestPlacesFromRelationsAndRegionField(t *testing.T) {
+	l := BuildPlaces(
+		[]TreeEntity{
+			place("east", "东洲", ""),
+			place("mount", "青云山", ""),
+			place("hall", "藏经阁", "青云山"), // region field names another place
+			place("peak", "天剑峰", "青云宗"), // names a sect, not a place: ignored
+			place("city", "临安城", ""),
+			ch("lin", "青云宗"), // characters are not in the geography
+			fa("sect", "青云宗"),
+		},
+		[]TreeLink{
+			link("mount", "east", "位于", 1), // the mountain lies within 东洲
+			link("east", "city", "下辖", 2),  // 东洲 contains the city
+			link("peak", "mount", "毗邻", 3), // not containment
+			link("lin", "mount", "位于", 4),  // a character: ignored
+		},
+	)
+	nodes, parents := index(l)
+	want := map[string]string{"mount": "east", "hall": "mount", "city": "east"}
+	for id, p := range want {
+		if parents[id] != p {
+			t.Errorf("parent(%s) = %q, want %q", id, parents[id], p)
+		}
+	}
+	if _, ok := parents["peak"]; ok {
+		t.Errorf("天剑峰 should be a root, got parent %q", parents["peak"])
+	}
+	for _, id := range []string{"lin", "sect", VirtualFactionID("青云宗"), UnassignedID} {
+		if _, ok := nodes[id]; ok {
+			t.Errorf("%s must not be in the geography", id)
+		}
+	}
+	if len(l.Roots) != 2 || l.Roots[0].ID != "east" || l.Depth != 2 {
+		t.Fatalf("roots %v depth %d", l.Roots, l.Depth)
+	}
+}
+
+func TestPlacesBreakLoops(t *testing.T) {
+	l := BuildPlaces(
+		[]TreeEntity{place("a", "甲地", ""), place("b", "乙地", "")},
+		[]TreeLink{link("a", "b", "位于", 1), link("b", "a", "位于", 2)},
+	)
+	if len(l.Cycles) != 1 || len(l.Roots) != 1 {
+		t.Fatalf("cycles %v roots %d", l.Cycles, len(l.Roots))
+	}
+}

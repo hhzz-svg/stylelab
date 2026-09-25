@@ -10,11 +10,18 @@ const NODE_W = 108
 const NODE_H = 42
 const PAD = 32
 
-type Props = {
-  projectId: string
-  /** Changes whenever the graph does, to refetch. */
-  version: unknown
+type DiagramProps = {
+  lineage: Lineage | null
+  error?: string
   onSelect: (nodeId: string) => void
+  ariaLabel: string
+  emptyText: string
+  /** Shown under the diagram. */
+  note: string
+  /** How to fix a loop, after "绕成了圈：A → B". */
+  loopHint: string
+  /** A short line under a node, such as its scene count. */
+  badge?: (nodeId: string) => string | undefined
 }
 
 type Placed = { node: LineageNode; cx: number; cy: number }
@@ -23,28 +30,8 @@ function centre(n: LineageNode) {
   return { cx: PAD + NODE_W / 2 + n.x * UNIT_X, cy: PAD + NODE_H / 2 + n.depth * UNIT_Y }
 }
 
-/** 人物谱系树：势力 → 成员，师父 → 徒弟，父母 → 子女。 */
-export default function LineageTree({ projectId, version, onSelect }: Props) {
-  const [lineage, setLineage] = useState<Lineage | null>(null)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let live = true
-    api.graphLineage(projectId).then(
-      (l) => {
-        if (!live) return
-        setLineage(l)
-        setError('')
-      },
-      (err) => {
-        if (live) setError(errMessage(err, '加载谱系树失败'))
-      },
-    )
-    return () => {
-      live = false
-    }
-  }, [projectId, version])
-
+/** 画一片由服务器排好版的树林（谱系树、地理层级共用）。 */
+export function ForestDiagram({ lineage, error, onSelect, ariaLabel, emptyText, note, loopHint, badge }: DiagramProps) {
   const { placed, byId } = useMemo(() => {
     const placed: Placed[] = []
     const byId = new Map<string, Placed>()
@@ -63,7 +50,7 @@ export default function LineageTree({ projectId, version, onSelect }: Props) {
   if (lineage.roots.length === 0) {
     return (
       <div className="lineage-scroll">
-        <p className="insight-note lineage-empty">还没有人物或势力。添加人物并标注门派，或建立师徒、父子等关系后，这里会长出谱系树。</p>
+        <p className="insight-note lineage-empty">{emptyText}</p>
       </div>
     )
   }
@@ -78,13 +65,13 @@ export default function LineageTree({ projectId, version, onSelect }: Props) {
         <div className="lineage-warning">
           {lineage.cycles.map((c) => (
             <p key={c.join()}>
-              上下级关系绕成了圈：{c.map(name).join(' → ')}。已断开其中一条，请在人物档案里检查方向。
+              上下级关系绕成了圈：{c.map(name).join(' → ')}。已断开其中一条，{loopHint}
             </p>
           ))}
         </div>
       ) : null}
       <div className="lineage-scroll">
-        <svg className="lineage-svg" width={width} height={height} role="img" aria-label="人物谱系树">
+        <svg className="lineage-svg" width={width} height={height + (badge ? 14 : 0)} role="img" aria-label={ariaLabel}>
           <g>
             {placed.map(({ node, cx, cy }) =>
               node.children.map((c) => {
@@ -138,14 +125,59 @@ export default function LineageTree({ projectId, version, onSelect }: Props) {
                     {node.relation}
                   </text>
                 ) : null}
+                {badge?.(node.id) ? (
+                  <text className="lineage-badge" x={NODE_W / 2} y={NODE_H + 13} textAnchor="middle">
+                    {badge(node.id)}
+                  </text>
+                ) : null}
               </g>
             ))}
           </g>
         </svg>
       </div>
-      <p className="insight-note">
-        师徒、父子、君臣、主仆等上下级关系按「关系的源头是上位者」排列；方向反了，在人物档案里点 ⇄ 调换。虚线是另有的师承。
-      </p>
+      <p className="insight-note">{note}</p>
     </div>
+  )
+}
+
+type Props = {
+  projectId: string
+  /** Changes whenever the graph does, to refetch. */
+  version: unknown
+  onSelect: (nodeId: string) => void
+}
+
+/** 人物谱系树：势力 → 成员，师父 → 徒弟，父母 → 子女。 */
+export default function LineageTree({ projectId, version, onSelect }: Props) {
+  const [lineage, setLineage] = useState<Lineage | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let live = true
+    api.graphLineage(projectId).then(
+      (l) => {
+        if (!live) return
+        setLineage(l)
+        setError('')
+      },
+      (err) => {
+        if (live) setError(errMessage(err, '加载谱系树失败'))
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [projectId, version])
+
+  return (
+    <ForestDiagram
+      lineage={lineage}
+      error={error}
+      onSelect={onSelect}
+      ariaLabel="人物谱系树"
+      emptyText="还没有人物或势力。添加人物并标注门派，或建立师徒、父子等关系后，这里会长出谱系树。"
+      loopHint="请在人物档案里检查方向。"
+      note="师徒、父子、君臣、主仆等上下级关系按「关系的源头是上位者」排列；方向反了，在人物档案里点 ⇄ 调换。虚线是另有的师承。"
+    />
   )
 }

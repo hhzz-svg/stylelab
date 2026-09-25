@@ -489,3 +489,16 @@ Plan (six phases, each committed and pushed on its own): importance ranking, com
 - Unit: grouping with a leading group, a volume starting at a deleted chapter, an empty volume, totals; outline volume validation.
 - Route: volumes shape the tree; duplicate start, blank title and start < 1 are 400; moving and deleting volumes; scenes hang under their chapter and go stale with the body; another user gets 404 on all four routes; outline import with volumes, a mismatched import writes nothing, a replacing import replaces the volumes; volumes follow chapter deletes.
 - e2e: build two volumes from the rows, collapse one, see scenes under chapter 1, delete a chapter and see the second volume still start at 入城; import a generated outline and get its volume.
+
+## 2026-09-25 - Phase 7 — geography tree
+
+### What was done
+- The lineage builder is now `buildForest(spec, …)`: the kinds in the tree, the kind others name in their Faction field, the relation vocabulary, and what happens to orphans. `BuildLineage` and the new `BuildPlaces` are two specs over the same parent choice, loop breaking and Buchheim–Walker layout; every lineage test passes unchanged.
+- `PlaceDirection`: 位于 / 坐落 / 地处 / 属于 / 隶属 / 境内 put the source inside the target; 包含 / 下辖 / 管辖 the other way. A location's 所属 field counts only when it names another location — it often names a sect — so the geography never grows stand-in roots.
+- `GET /api/projects/{id}/graph/places`: the forest plus the scenes set at each place, in reading order. The graph-extraction prompt states the 位于 direction.
+- Graph page: 地理层级 tab (shared `ForestDiagram` with the lineage tree), a scene count under each place, and a side list of the selected place's scenes linking to their chapters.
+
+### Testing
+- Unit: the place vocabulary both ways; relations and the 所属 field build 东洲 → 青云山 → 藏经阁 while a sect named in 所属, characters and factions stay out; a loop of 位于 is cut.
+- Route: the path and the scenes per place from a split chapter; another user gets 404.
+- e2e: nesting top to bottom, "1 场" under 藏经阁, and its scene links to the chapter.

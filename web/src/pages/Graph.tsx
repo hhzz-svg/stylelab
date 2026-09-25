@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarRange,
   Crown,
+  MapPinned,
   GitFork,
   Network,
   PanelRight,
@@ -22,6 +23,7 @@ import Crumb from '../components/Crumb'
 import EntityDrawer from '../components/EntityDrawer'
 import InsightPanel from '../components/insight/InsightPanel'
 import LineageTree from '../components/insight/LineageTree'
+import PlaceTree from '../components/insight/PlaceTree'
 import AppearanceTimeline from '../components/insight/AppearanceTimeline'
 import { communityColor } from '../components/insight/palette'
 import Skeleton from '../components/Skeleton'
@@ -75,7 +77,7 @@ export default function Graph() {
   const [showInsight, setShowInsight] = useState(true)
   const [sizeByImportance, setSizeByImportance] = useState(true)
   const [colorByCommunity, setColorByCommunity] = useState(false)
-  const [view, setView] = useState<'network' | 'lineage' | 'timeline'>('network')
+  const [view, setView] = useState<'network' | 'lineage' | 'places' | 'timeline'>('network')
   const [weights, setWeights] = useState<AnalysisWeights>('graph')
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
@@ -546,6 +548,15 @@ export default function Graph() {
           <button
             type="button"
             role="tab"
+            aria-selected={view === 'places'}
+            className={'view-tab' + (view === 'places' ? ' active' : '')}
+            onClick={() => setView('places')}
+          >
+            <MapPinned size={14} /> 地理层级
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={view === 'timeline'}
             className={'view-tab' + (view === 'timeline' ? ' active' : '')}
             onClick={() => setView('timeline')}
@@ -646,7 +657,19 @@ export default function Graph() {
         ) : null}
       </div>
 
-      {view === 'timeline' ? (
+      {view === 'places' ? (
+        <PlaceTree
+          projectId={projectId}
+          version={graphData}
+          onOpen={(nodeId) => {
+            const node = graphData?.nodes.find((n) => n.id === nodeId)
+            if (node) {
+              setSelectedNode(node)
+              setDrawerOpen(true)
+            }
+          }}
+        />
+      ) : view === 'timeline' ? (
         <AppearanceTimeline
           projectId={projectId}
           nodes={graphData?.nodes ?? []}

@@ -253,3 +253,55 @@ func Lineage(ctx context.Context, st *store.Store, projectID string) (insight.Li
 	}
 	return insight.BuildLineage(entities, links), nil
 }
+
+// PlaceScene is a scene set at a place, for the geography view.
+type PlaceScene struct {
+	SceneID   string `json:"scene_id"`
+	ChapterID string `json:"chapter_id"`
+	Seq       int    `json:"seq"`
+	Index     int    `json:"index"`
+	Title     string `json:"title"`
+}
+
+// Places is the geography: the place forest, and the scenes set at each
+// place (a scene's main location, see SegmentScenes), in reading order.
+type Places struct {
+	insight.Lineage
+	Scenes map[string][]PlaceScene `json:"scenes"`
+}
+
+// LoadPlaces builds the project's geography.
+func LoadPlaces(ctx context.Context, st *store.Store, projectID string) (Places, error) {
+	w, err := LoadWorld(ctx, st, projectID)
+	if err != nil {
+		return Places{}, err
+	}
+	entities := make([]insight.TreeEntity, len(w.Nodes))
+	for i, n := range w.Nodes {
+		entities[i] = insight.TreeEntity{ID: n.ID, Name: n.Name, Kind: n.Kind, Faction: n.Faction}
+	}
+	links := make([]insight.TreeLink, len(w.Links))
+	for i, l := range w.Links {
+		links[i] = insight.TreeLink{Source: l.SourceID, Target: l.TargetID, Relation: l.Relation, Weight: l.Strength, Order: i}
+	}
+	out := Places{Lineage: insight.BuildPlaces(entities, links), Scenes: map[string][]PlaceScene{}}
+
+	rows, err := st.DB().QueryContext(ctx,
+		`SELECT s.location_id, s.id, s.chapter_id, c.seq, s.idx, s.title
+		 FROM chapter_scenes s JOIN chapters c ON c.id = s.chapter_id
+		 WHERE s.project_id = ? AND s.location_id != ''
+		 ORDER BY c.seq, s.idx`, projectID)
+	if err != nil {
+		return Places{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var loc string
+		var s PlaceScene
+		if err := rows.Scan(&loc, &s.SceneID, &s.ChapterID, &s.Seq, &s.Index, &s.Title); err != nil {
+			return Places{}, err
+		}
+		out.Scenes[loc] = append(out.Scenes[loc], s)
+	}
+	return out, rows.Err()
+}

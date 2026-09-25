@@ -5119,3 +5119,12 @@ div.chapter-neighbor-state {
   background: var(--gold);
   border-radius: 50%;
 }
+
+.lineage-node text.lineage-badge {
+  fill: var(--jade-hi);
+  font-size: 11px;
+}
+
+.place-scenes {
+  margin-bottom: 0.8rem;
+}

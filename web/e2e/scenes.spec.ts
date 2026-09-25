@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { THREE_SCENES, addChapter, addNode, setup } from './helpers'
+import { THREE_SCENES, addChapter, addEdge, addNode, setup } from './helpers'
 
 test('a chapter splits into scenes that locate their text and take a new title', async ({ page }) => {
   const projectId = await setup(page)
@@ -53,4 +53,30 @@ test('the timeline can split the whole book into scenes', async ({ page }) => {
   await page.getByRole('button', { name: /全书切分场景/ }).click()
   await expect(page.locator('.timeline-head')).toContainText('2 章 · 4 个场景')
   await expect(page.getByRole('button', { name: /全书切分场景/ })).toHaveCount(0)
+})
+
+test('the geography nests places and lists the scenes set at each', async ({ page }) => {
+  const projectId = await setup(page)
+  const east = await addNode(page, projectId, { name: '东洲', kind: 'location' })
+  const mount = await addNode(page, projectId, { name: '青云山', kind: 'location' })
+  const library = await addNode(page, projectId, { name: '藏经阁', kind: 'location', faction: '青云山' })
+  await addNode(page, projectId, { name: '苏晚', kind: 'character' })
+  await addEdge(page, projectId, mount, east, '位于')
+  const chapterId = await addChapter(page, projectId, '三处', THREE_SCENES)
+  expect((await page.request.post(`/api/chapters/${chapterId}/scenes/split`, { data: {} })).ok()).toBe(true)
+
+  await page.goto(`/p/${projectId}/graph`)
+  await page.getByRole('tab', { name: /地理层级/ }).click()
+  const node = (id: string) => page.locator(`.lineage-node[data-id="${id}"]`)
+  await expect(node(library)).toBeVisible()
+  const y = async (id: string) => (await node(id).boundingBox())!.y
+  expect(await y(east)).toBeLessThan(await y(mount))
+  expect(await y(mount)).toBeLessThan(await y(library))
+  await expect(node(library).locator('.lineage-badge')).toHaveText('1 场')
+
+  await node(library).click()
+  const side = page.locator('.timeline-side')
+  await expect(side.locator('.insight-head')).toHaveText('藏经阁')
+  await side.getByRole('link', { name: '第 1 章 · 场景 2' }).click()
+  await expect(page).toHaveURL(new RegExp(`/chapter/${chapterId}$`))
 })

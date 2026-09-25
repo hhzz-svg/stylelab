@@ -20,6 +20,7 @@ import type {
   Me,
   OutlineChapterItem,
   ParentRef,
+  Places,
   Project,
   SampleChapter,
   SceneRecord,
@@ -386,6 +387,8 @@ export const api = {
       method: 'POST',
       body: '{}',
     }),
+
+  graphPlaces: (projectId: string) => request<Places>(`/api/projects/${projectId}/graph/places`),
 
   graphLineage: (projectId: string) =>
     request<Lineage>(`/api/projects/${projectId}/graph/lineage`),

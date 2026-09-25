@@ -82,7 +82,7 @@ const UnassignedID = "unassigned"
 
 // VirtualFactionID is the id of the stand-in root for a faction named on
 // characters but missing from the graph.
-func VirtualFactionID(name string) string { return "faction:" + name }
+func VirtualFactionID(name string) string { return lineageSpec.virtualPrefix + name }
 
 type candidate struct {
 	parent   string
@@ -91,22 +91,84 @@ type candidate struct {
 	order    int
 }
 
+// Relations that put one place inside another. "青云山 → 东洲: 位于"
+// reads as 青云山 lies within 东洲; "包含" and "下辖" read the other way.
+var (
+	placeInside   = []string{"位于", "坐落", "地处", "属于", "隶属", "境内", "之中", "一部分"}
+	placeContains = []string{"包含", "辖", "囊括"}
+)
+
+// PlaceDirection classifies a relation between places: +1 when the source
+// is the larger place, -1 when the target is, 0 otherwise.
+func PlaceDirection(relation string) int {
+	r := strings.TrimSpace(relation)
+	for _, w := range placeInside {
+		if strings.Contains(r, w) {
+			return -1
+		}
+	}
+	for _, w := range placeContains {
+		if strings.Contains(r, w) {
+			return 1
+		}
+	}
+	return 0
+}
+
+// forestSpec is what differs between the lineage tree and the place tree;
+// everything else -- parent choice, loop breaking, layout -- is shared.
+type forestSpec struct {
+	kinds         map[string]bool  // entity kinds in the tree
+	groupKind     string           // the kind others name in their Faction field
+	direction     func(string) int // +1 source is the superior, -1 target, 0 not hierarchical
+	virtualPrefix string           // id prefix for a named group with no node
+	orphanKind    string           // kind that goes under 未归属 when it has no parent; "" for none
+}
+
+var lineageSpec = forestSpec{
+	kinds:         map[string]bool{"character": true, "faction": true},
+	groupKind:     "faction",
+	direction:     HierarchyDirection,
+	virtualPrefix: "faction:",
+	orphanKind:    "character",
+}
+
+var placeSpec = forestSpec{
+	kinds:     map[string]bool{"location": true},
+	groupKind: "location",
+	direction: PlaceDirection,
+	// A place's "所属" field often names a sect rather than a region, so it
+	// only counts when it names another place; no stand-in roots.
+	virtualPrefix: "place:",
+}
+
 // BuildLineage turns the relationship graph into a forest: factions at the
 // top, their members beneath, and masters above disciples, parents above
 // children. Each entity gets one tree parent -- a superior of the same
 // faction first, then the strongest tie, then the oldest -- and any others
 // are kept as extra_parents. Positions come from Buchheim-Walker.
 func BuildLineage(entities []TreeEntity, links []TreeLink) Lineage {
+	return buildForest(lineageSpec, entities, links)
+}
+
+// BuildPlaces arranges the locations as a geography: regions above the
+// places inside them, from 位于 / 包含 relations and from a location's
+// "所属" field when it names another location.
+func BuildPlaces(entities []TreeEntity, links []TreeLink) Lineage {
+	return buildForest(placeSpec, entities, links)
+}
+
+func buildForest(spec forestSpec, entities []TreeEntity, links []TreeLink) Lineage {
 	byID := map[string]TreeEntity{}
 	factionByName := map[string]string{}
 	var ids []string
 	for _, e := range entities {
-		if e.Kind != "character" && e.Kind != "faction" {
+		if !spec.kinds[e.Kind] {
 			continue
 		}
 		byID[e.ID] = e
 		ids = append(ids, e.ID)
-		if e.Kind == "faction" {
+		if e.Kind == spec.groupKind {
 			if _, dup := factionByName[e.Name]; !dup {
 				factionByName[e.Name] = e.ID
 			}
@@ -124,7 +186,7 @@ func BuildLineage(entities []TreeEntity, links []TreeLink) Lineage {
 	// Superiors from hierarchical relations.
 	candidates := map[string][]candidate{}
 	for _, l := range links {
-		dir := HierarchyDirection(l.Relation)
+		dir := spec.direction(l.Relation)
 		if dir == 0 {
 			continue
 		}
@@ -152,7 +214,7 @@ func BuildLineage(entities []TreeEntity, links []TreeLink) Lineage {
 		own := affiliation(byID[id])
 		sameFaction := func(c candidate) bool {
 			p := byID[c.parent]
-			return own != "" && (affiliation(p) == own || (p.Kind == "faction" && p.Name == own))
+			return own != "" && (affiliation(p) == own || (p.Kind == spec.groupKind && p.Name == own))
 		}
 		sort.SliceStable(cs, func(a, b int) bool {
 			if sa, sb := sameFaction(cs[a]), sameFaction(cs[b]); sa != sb {
@@ -196,12 +258,12 @@ func BuildLineage(entities []TreeEntity, links []TreeLink) Lineage {
 			}
 			return
 		}
-		if byID[id].Kind == "faction" {
-			return // a sub-faction of a faction that does not exist: stay a root
+		if byID[id].Kind == spec.groupKind {
+			return // a group naming a group that does not exist: stay a root
 		}
-		vid := VirtualFactionID(f)
+		vid := spec.virtualPrefix + f
 		if virtual[vid] == nil {
-			virtual[vid] = &LineageNode{ID: vid, Virtual: true, Name: f, Kind: "faction"}
+			virtual[vid] = &LineageNode{ID: vid, Virtual: true, Name: f, Kind: spec.groupKind}
 		}
 		parent[id] = vid
 	}
@@ -241,9 +303,9 @@ func BuildLineage(entities []TreeEntity, links []TreeLink) Lineage {
 			nodes[p].Children = append(nodes[p].Children, n)
 			continue
 		}
-		if n.Kind == "character" {
+		if spec.orphanKind != "" && n.Kind == spec.orphanKind {
 			if unassigned == nil {
-				unassigned = &LineageNode{ID: UnassignedID, Virtual: true, Name: "未归属", Kind: "faction", Children: []*LineageNode{}, ExtraParents: []string{}}
+				unassigned = &LineageNode{ID: UnassignedID, Virtual: true, Name: "未归属", Kind: spec.groupKind, Children: []*LineageNode{}, ExtraParents: []string{}}
 			}
 			unassigned.Children = append(unassigned.Children, n)
 			continue

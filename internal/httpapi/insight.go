@@ -88,3 +88,17 @@ func (s *Server) handleGraphCooccurrence(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
+
+// handleGraphPlaces returns the geography with the scenes set at each place.
+func (s *Server) handleGraphPlaces(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := s.ownedProjectForInsight(w, r)
+	if !ok {
+		return
+	}
+	out, err := lore.LoadPlaces(r.Context(), s.st, projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}

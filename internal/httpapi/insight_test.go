@@ -19,6 +19,16 @@ type analysisView struct {
 		Rank        int     `json:"rank"`
 		Role        string  `json:"role"`
 	} `json:"ranking"`
+	Communities []struct {
+		Index    int      `json:"index"`
+		Faction  string   `json:"faction"`
+		Members  []string `json:"members"`
+		Outliers []struct {
+			ID      string `json:"id"`
+			Faction string `json:"faction"`
+		} `json:"outliers"`
+	} `json:"communities"`
+	Modularity float64 `json:"modularity"`
 }
 
 func getAnalysis(t *testing.T, srv *httptest.Server, c *http.Client, projectID string) (int, analysisView) {
@@ -85,5 +95,52 @@ func TestGraphAnalysisEmptyAndOtherUser(t *testing.T) {
 	}
 	if code, _ := getAnalysis(t, srv, intruder, projectID); code != http.StatusNotFound {
 		t.Fatalf("other user: %d, want 404", code)
+	}
+}
+
+func TestGraphAnalysisFindsFactionsAndTheSpy(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "communities@example.com")
+	projectID := createProject(t, srv, owner, "阵营")
+
+	add := func(name, faction string) string {
+		_, id := saveNode(t, srv, owner, projectID, fmt.Sprintf(`{"name":%q,"faction":%q}`, name, faction))
+		return id
+	}
+	link := func(a, b string) {
+		saveEdge(t, srv, owner, projectID, fmt.Sprintf(`{"source_id":%q,"target_id":%q,"relation":"往来"}`, a, b))
+	}
+	// 青云宗: three disciples, plus a man labelled 魔门 who spends all his
+	// time with them. 魔门: three members. One thin tie between the camps.
+	q := []string{add("林远", "青云宗"), add("苏晚", "青云宗"), add("赵长老", "青云宗"), add("卧底", "魔门")}
+	m := []string{add("魔尊", "魔门"), add("血影", "魔门"), add("鬼婆", "魔门")}
+	for _, group := range [][]string{q, m} {
+		for i := range group {
+			for j := i + 1; j < len(group); j++ {
+				link(group[i], group[j])
+			}
+		}
+	}
+	link(q[0], m[0])
+
+	code, a := getAnalysis(t, srv, owner, projectID)
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	if len(a.Communities) != 2 {
+		t.Fatalf("communities = %+v", a.Communities)
+	}
+	qc, mc := a.Communities[0], a.Communities[1]
+	if qc.Faction != "青云宗" || len(qc.Members) != 4 || mc.Faction != "魔门" || len(mc.Members) != 3 {
+		t.Fatalf("got %+v / %+v", qc, mc)
+	}
+	if len(qc.Outliers) != 1 || qc.Outliers[0].ID != q[3] || qc.Outliers[0].Faction != "魔门" {
+		t.Fatalf("the spy should stand out: %+v", qc.Outliers)
+	}
+	if len(mc.Outliers) != 0 {
+		t.Fatalf("魔门 outliers = %+v", mc.Outliers)
+	}
+	if a.Modularity < 0.3 {
+		t.Fatalf("modularity %.3f", a.Modularity)
 	}
 }

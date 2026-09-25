@@ -4533,3 +4533,71 @@ div.chapter-neighbor-state {
     max-height: 360px;
   }
 }
+
+.community-list {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.community-card {
+  padding: 0.6rem 0.7rem;
+  background: var(--panel-subtle);
+  border: 1px solid var(--line-dim);
+  border-radius: var(--radius-sm);
+}
+
+.community-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.86rem;
+}
+
+.community-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.community-size {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+
+.community-members {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.community-outlier {
+  margin: 0.4rem 0 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: var(--cinnabar-hi);
+  background: var(--cinnabar-faint);
+  border-radius: var(--radius-sm);
+}
+
+.link-btn {
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-hi);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: var(--gold-hi);
+}

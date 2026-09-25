@@ -7,6 +7,7 @@ package lore
 import (
 	"context"
 	"encoding/json"
+	"sort"
 
 	"stylelab/internal/insight"
 	"stylelab/internal/store"
@@ -96,6 +97,31 @@ type Analysis struct {
 	NodeCount int                `json:"node_count"`
 	EdgeCount int                `json:"edge_count"`
 	Ranking   []insight.NodeRank `json:"ranking"`
+	// Communities found by Louvain, largest first. Nodes in no community
+	// here were left on their own.
+	Communities []Community `json:"communities"`
+	Modularity  float64     `json:"modularity"`
+}
+
+// Community is a group Louvain found, described against the factions the
+// author labelled.
+type Community struct {
+	Index int `json:"index"`
+	// Faction is the labelled faction most of the group's labelled members
+	// share, or "" when the group has no clear one.
+	Faction string `json:"faction"`
+	// Members are node ids, most important first.
+	Members []string `json:"members"`
+	// Outliers are members labelled with a different faction from the
+	// group's: someone whose ties say otherwise -- a secret ally, a spy,
+	// or a label that is out of date.
+	Outliers []Outlier `json:"outliers"`
+}
+
+// Outlier is a member whose labelled faction differs from its group's.
+type Outlier struct {
+	ID      string `json:"id"`
+	Faction string `json:"faction"`
 }
 
 // Analyze runs the graph analyses over a project's world.
@@ -105,9 +131,84 @@ func Analyze(ctx context.Context, st *store.Store, projectID string) (Analysis, 
 		return Analysis{}, err
 	}
 	g := w.Graph()
+	ranking := insight.RankNodes(g)
+	part := insight.Louvain(g)
 	return Analysis{
-		NodeCount: g.Len(),
-		EdgeCount: g.EdgeCount(),
-		Ranking:   insight.RankNodes(g),
+		NodeCount:   g.Len(),
+		EdgeCount:   g.EdgeCount(),
+		Ranking:     ranking,
+		Communities: describeCommunities(part, w.Nodes, ranking),
+		Modularity:  part.Modularity,
 	}, nil
+}
+
+// factionOf is the faction a node is labelled with. A faction node with
+// no faction of its own stands for itself.
+func factionOf(n Node) string {
+	if n.Faction != "" {
+		return n.Faction
+	}
+	if n.Kind == "faction" {
+		return n.Name
+	}
+	return ""
+}
+
+// describeCommunities keeps the groups of two or more and names each by
+// the faction at least half its labelled members share.
+func describeCommunities(p insight.Partition, nodes []Node, ranking []insight.NodeRank) []Community {
+	byID := make(map[string]Node, len(nodes))
+	for _, n := range nodes {
+		byID[n.ID] = n
+	}
+	rank := make(map[string]int, len(ranking))
+	for _, r := range ranking {
+		rank[r.ID] = r.Rank
+	}
+
+	out := []Community{}
+	for _, group := range p.Communities {
+		if len(group) < 2 {
+			continue
+		}
+		members := append([]string(nil), group...)
+		sort.SliceStable(members, func(a, b int) bool { return rank[members[a]] < rank[members[b]] })
+
+		// Count labelled factions; ties go to the one whose first member
+		// ranks higher.
+		counts := map[string]int{}
+		var order []string
+		labelled := 0
+		for _, id := range members {
+			f := factionOf(byID[id])
+			if f == "" {
+				continue
+			}
+			labelled++
+			if counts[f] == 0 {
+				order = append(order, f)
+			}
+			counts[f]++
+		}
+		dominant := ""
+		for _, f := range order {
+			if counts[f] > counts[dominant] {
+				dominant = f
+			}
+		}
+		if dominant != "" && counts[dominant]*2 < labelled {
+			dominant = ""
+		}
+
+		c := Community{Index: len(out), Faction: dominant, Members: members, Outliers: []Outlier{}}
+		if dominant != "" {
+			for _, id := range members {
+				if f := factionOf(byID[id]); f != "" && f != dominant {
+					c.Outliers = append(c.Outliers, Outlier{ID: id, Faction: f})
+				}
+			}
+		}
+		out = append(out, c)
+	}
+	return out
 }

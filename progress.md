@@ -411,3 +411,15 @@ Plan (six phases, each committed and pushed on its own): importance ranking, com
 - Unit tests check PageRank and betweenness against hand-worked values (a path; a square where shortest paths split), a star, the bridge between two triangles, weight sensitivity, merging, empty and single-node graphs, and 20 shuffles of input order.
 - Route tests: a star ranks its centre first as core, its leaves peripheral, a lone node isolated; an empty project returns `[]`; another user gets 404.
 - e2e: the ranking lists the centre first with score 100; its node is drawn 1.3× and returns to 1× when the toggle is off; clicking the row opens the profile.
+
+## 2026-09-25 - Phase 2 — community detection
+
+### What was done
+- `insight.Louvain`: greedy modularity optimisation (Blondel et al.), local moves then aggregation until no merge helps. Nodes are visited in id order and ties go to the lowest community, so a graph always yields the same partition. `insight.Modularity` computes Newman's Q.
+- `lore` names each group of two or more by the faction at least half its labelled members share (a faction node counts for its own name) and lists members labelled otherwise as outliers.
+- Graph page: the insight panel lists the groups with the modularity and a verdict, and flags the outliers ("标注为「魔门」，却与青云宗往来密切"); a toolbar toggle colours nodes by detected group instead of labelled faction.
+
+### Testing
+- Unit: two K4s joined by a bridge split exactly, with Q equal to the hand-worked 2·(12/26 − (13/26)²); a ring of six K4s splits into the six; edge weights decide a path's split; isolated nodes stay alone; 30 input shuffles give the same partition; naming, the half-rule and outliers.
+- Route: two camps with a spy labelled 魔门 among 青云宗 → two groups named 青云宗 and 魔门, the spy the only outlier, Q > 0.3.
+- e2e: the panel shows both groups and the spy; toggling colours gives the spy 林远's colour instead of 魔尊's.

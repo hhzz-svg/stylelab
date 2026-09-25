@@ -50,10 +50,23 @@ export type NodeRank = {
   role: NodeRole
 }
 
+/** A group Louvain found in the relationship graph. */
+export type Community = {
+  index: number
+  /** The faction at least half its labelled members share, or ''. */
+  faction: string
+  /** Node ids, most important first. */
+  members: string[]
+  /** Members labelled with another faction than the group's. */
+  outliers: { id: string; faction: string }[]
+}
+
 export type GraphAnalysis = {
   node_count: number
   edge_count: number
   ranking: NodeRank[]
+  communities: Community[]
+  modularity: number
 }
 
 /** The newest successful result of a studio job, as saved in the jobs table. */

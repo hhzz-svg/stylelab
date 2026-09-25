@@ -4,6 +4,7 @@ import {
   Network,
   PanelRight,
   Plus,
+  Shapes,
   RotateCcw,
   Search,
   Sparkles,
@@ -18,6 +19,7 @@ import { listJobs, registerJob, resultData } from '../jobs'
 import Crumb from '../components/Crumb'
 import EntityDrawer from '../components/EntityDrawer'
 import InsightPanel from '../components/insight/InsightPanel'
+import { communityColor } from '../components/insight/palette'
 import Skeleton from '../components/Skeleton'
 import { usePageTitle } from '../hooks'
 import type { GraphAnalysis, GraphData, GraphExtractResult, GraphNode, GraphNodeKind, Job } from '../types'
@@ -68,6 +70,7 @@ export default function Graph() {
   const [analysis, setAnalysis] = useState<GraphAnalysis | null>(null)
   const [showInsight, setShowInsight] = useState(true)
   const [sizeByImportance, setSizeByImportance] = useState(true)
+  const [colorByCommunity, setColorByCommunity] = useState(false)
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
   const [extractJobId, setExtractJobId] = useState('')
@@ -422,6 +425,13 @@ export default function Graph() {
     return m
   }, [analysis])
 
+  // Louvain community per node; nodes left on their own have none.
+  const communityOf = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const c of analysis?.communities ?? []) for (const id of c.members) m.set(id, c.index)
+    return m
+  }, [analysis])
+
   // Edges to render
   const edges = graphData?.edges ?? []
   const nodeMap = useMemo(() => {
@@ -560,6 +570,15 @@ export default function Graph() {
               <Crown size={15} />
             </button>
             <button
+              className={'icon-btn sm' + (colorByCommunity ? ' on' : '')}
+              type="button"
+              onClick={() => setColorByCommunity((v) => !v)}
+              title="按算法发现的阵营着色"
+              aria-pressed={colorByCommunity}
+            >
+              <Shapes size={15} />
+            </button>
+            <button
               className={'icon-btn sm' + (showInsight ? ' on' : '')}
               type="button"
               onClick={() => setShowInsight((v) => !v)}
@@ -689,7 +708,7 @@ export default function Graph() {
 
                   const isHovered = hoveredNodeId === node.id
                   const isConnected = !connectedNodeIds || connectedNodeIds.has(node.id)
-                  const color = getFactionColor(node.faction)
+                  const color = colorByCommunity ? communityColor(communityOf.get(node.id)) : getFactionColor(node.faction)
                   const icon = KIND_ICONS[node.kind] ?? '🧑'
                   const score = scoreById.get(node.id)
                   // 0.7x for the least connected up to 1.3x for the top node.

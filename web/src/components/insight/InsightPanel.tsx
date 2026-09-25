@@ -1,4 +1,5 @@
 import type { GraphAnalysis, GraphNode, NodeRole } from '../../types'
+import { communityColor } from './palette'
 
 const ROLE_LABEL: Record<Exclude<NodeRole, ''>, string> = {
   core: '核心',
@@ -8,6 +9,14 @@ const ROLE_LABEL: Record<Exclude<NodeRole, ''>, string> = {
 }
 
 const TOP_N = 10
+const MEMBERS_SHOWN = 6
+
+/** How clearly the network splits into groups, in words. */
+function modularityVerdict(q: number): string {
+  if (q >= 0.3) return '分群明显'
+  if (q >= 0.1) return '有一定分群'
+  return '关系网较松散，分群不明显'
+}
 
 type Props = {
   analysis: GraphAnalysis | null
@@ -16,11 +25,13 @@ type Props = {
   onSelect: (nodeId: string) => void
 }
 
-/** 图谱洞察侧栏：按关系网络结构算出的人物重要度排行。 */
+/** 图谱洞察侧栏：由关系网络结构算出的重要度排行与自动发现的阵营。 */
 export default function InsightPanel({ analysis, nodes, selectedId, onSelect }: Props) {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const ranked = (analysis?.ranking ?? []).filter((r) => r.degree > 0 && byId.has(r.id)).slice(0, TOP_N)
   const hubs = (analysis?.ranking ?? []).filter((r) => r.role === 'hub' && byId.has(r.id))
+  const communities = analysis?.communities ?? []
+  const name = (id: string) => byId.get(id)?.name ?? '？'
 
   return (
     <aside className="insight-panel" aria-label="图谱洞察">
@@ -57,11 +68,57 @@ export default function InsightPanel({ analysis, nodes, selectedId, onSelect }: 
           <p className="insight-note">
             <span className="role-chip hub">枢纽</span>
             {hubs.map((h) => byId.get(h.id)!.name).join('、')}
-            ：本身不一定显眼，但不同圈子之间的往来都要经过他们。
+            ：不同圈子之间的往来大多要经过他们。
           </p>
         ) : null}
         <p className="insight-note">
           分数按 PageRank 计算：被重要人物紧密关联的人更重要，满分 100。枢纽按介数中心性计算。
+        </p>
+      </section>
+
+      <section className="insight-section">
+        <h3 className="insight-head">阵营自动发现</h3>
+        {communities.length === 0 ? (
+          <p className="insight-note">关系还不够多，暂时分不出群落。</p>
+        ) : (
+          <>
+            <p className="insight-note">
+              模块度 {analysis!.modularity.toFixed(2)}：{modularityVerdict(analysis!.modularity)}
+            </p>
+            <ul className="community-list">
+              {communities.map((c) => (
+                <li key={c.index} className="community-card">
+                  <div className="community-head">
+                    <span className="community-dot" style={{ background: communityColor(c.index) }} aria-hidden="true" />
+                    <strong>{c.faction || `以「${name(c.members[0])}」为核心`}</strong>
+                    <span className="community-size">{c.members.length} 个</span>
+                  </div>
+                  <p className="community-members">
+                    {c.members.slice(0, MEMBERS_SHOWN).map((id, i) => (
+                      <span key={id}>
+                        {i > 0 ? '、' : ''}
+                        <button type="button" className="link-btn" onClick={() => onSelect(id)}>
+                          {name(id)}
+                        </button>
+                      </span>
+                    ))}
+                    {c.members.length > MEMBERS_SHOWN ? ` 等 ${c.members.length} 个` : ''}
+                  </p>
+                  {c.outliers.map((o) => (
+                    <p key={o.id} className="community-outlier">
+                      <button type="button" className="link-btn" onClick={() => onSelect(o.id)}>
+                        {name(o.id)}
+                      </button>
+                      标注为「{o.faction}」，却与{c.faction}往来密切：暗线同盟、卧底，还是标注过时了？
+                    </p>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <p className="insight-note">
+          按 Louvain 算法把关系紧密的人自动分成群落，不看你标注的门派；和标注对不上的人会被单独指出。图上用「按算法阵营着色」查看。
         </p>
       </section>
     </aside>

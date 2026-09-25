@@ -28,3 +28,34 @@ test('importance ranking puts the best-connected character first and sizes nodes
   await rows.first().click()
   await expect(page.locator('.entity-drawer-title')).toHaveText('林远')
 })
+
+test('community detection groups the camps and points out the spy', async ({ page }) => {
+  const projectId = await setup(page)
+  const add = (name: string, faction: string) => addNode(page, projectId, { name, kind: 'character', faction })
+  const q = [await add('林远', '青云宗'), await add('苏晚', '青云宗'), await add('赵长老', '青云宗'), await add('卧底', '魔门')]
+  const m = [await add('魔尊', '魔门'), await add('血影', '魔门'), await add('鬼婆', '魔门')]
+  for (const group of [q, m]) {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) await addEdge(page, projectId, group[i], group[j])
+    }
+  }
+  await addEdge(page, projectId, q[0], m[0])
+
+  await page.goto(`/p/${projectId}/graph`)
+  const cards = page.locator('.community-card')
+  await expect(cards).toHaveCount(2)
+  await expect(cards.nth(0).locator('.community-head')).toContainText('青云宗')
+  await expect(cards.nth(1).locator('.community-head')).toContainText('魔门')
+  await expect(cards.nth(0).locator('.community-outlier')).toContainText('卧底')
+  await expect(cards.nth(0).locator('.community-outlier')).toContainText('标注为「魔门」')
+
+  // Coloured by labelled faction the spy looks like 魔门; coloured by the
+  // detected groups he takes 林远's colour.
+  const ring = (name: string) =>
+    page.locator('.graph-node-group', { hasText: name }).locator('.node-glow-ring')
+  const stroke = async (name: string) => ring(name).getAttribute('stroke')
+  expect(await stroke('卧底')).toBe(await stroke('魔尊'))
+  await page.getByTitle('按算法发现的阵营着色').click()
+  await expect.poll(() => stroke('卧底')).toBe(await stroke('林远'))
+  expect(await stroke('卧底')).not.toBe(await stroke('魔尊'))
+})

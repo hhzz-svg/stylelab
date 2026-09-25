@@ -373,3 +373,69 @@ func TestGraphAnalysisWeightsFromText(t *testing.T) {
 		t.Fatalf("bad mode: %d", code)
 	}
 }
+
+func TestAliasSuggestionsAndAdoption(t *testing.T) {
+	srv, _ := newStudioServer(t)
+	owner := registerUser(t, srv, "aliases@example.com")
+	intruder := registerUser(t, srv, "aliases-intruder@example.com")
+	projectID := createProject(t, srv, owner, "别名")
+
+	_, lin := saveNode(t, srv, owner, projectID, `{"name":"林远","kind":"character"}`)
+	saveNode(t, srv, owner, projectID, `{"name":"山谷","kind":"location"}`) // places get no pet names
+	writeBook(t, srv, owner, projectID, []string{
+		"林远拔剑。\n林师兄的剑很快。",
+		"林师兄收剑。\n远儿，回来吃饭。",
+	})
+
+	type suggestion struct {
+		EntityID   string   `json:"entity_id"`
+		Alias      string   `json:"alias"`
+		Count      int      `json:"count"`
+		Confidence float64  `json:"confidence"`
+		Examples   []string `json:"examples"`
+	}
+	get := func(c *http.Client) (int, []suggestion) {
+		resp := mustGet(t, c, srv.URL+"/api/projects/"+projectID+"/graph/alias-suggestions")
+		defer resp.Body.Close()
+		var body struct {
+			Suggestions []suggestion `json:"suggestions"`
+		}
+		if resp.StatusCode == http.StatusOK {
+			_ = json.NewDecoder(resp.Body).Decode(&body)
+		}
+		return resp.StatusCode, body.Suggestions
+	}
+	code, got := get(owner)
+	if code != http.StatusOK || len(got) != 1 {
+		t.Fatalf("status %d suggestions %+v", code, got)
+	}
+	if s := got[0]; s.EntityID != lin || s.Alias != "林师兄" || s.Count != 2 || s.Confidence != 1 || len(s.Examples) != 2 {
+		t.Fatalf("suggestion = %+v", s)
+	}
+
+	// Adopting it -- saving the alias on the node -- removes the suggestion
+	// and makes the co-occurrence count it.
+	if code, _ := saveNode(t, srv, owner, projectID,
+		fmt.Sprintf(`{"id":%q,"name":"林远","kind":"character","details":{"aliases":["林师兄"]}}`, lin)); code != http.StatusOK {
+		t.Fatalf("adopt: %d", code)
+	}
+	if _, got = get(owner); len(got) != 0 {
+		t.Fatalf("after adoption: %+v", got)
+	}
+	resp := mustGet(t, owner, srv.URL+"/api/projects/"+projectID+"/graph/cooccurrence")
+	var report struct {
+		Appearances []struct {
+			ID    string `json:"id"`
+			Total int    `json:"total"`
+		} `json:"appearances"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&report)
+	resp.Body.Close()
+	if len(report.Appearances) != 1 || report.Appearances[0].Total != 3 {
+		t.Fatalf("appearances after adoption = %+v", report.Appearances)
+	}
+
+	if code, _ := get(intruder); code != http.StatusNotFound {
+		t.Fatalf("other user: %d", code)
+	}
+}

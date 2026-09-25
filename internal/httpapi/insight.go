@@ -102,3 +102,18 @@ func (s *Server) handleGraphPlaces(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
+
+// handleAliasSuggestions proposes aliases found in the prose; the author
+// adopts them by saving the node's details.aliases.
+func (s *Server) handleAliasSuggestions(w http.ResponseWriter, r *http.Request) {
+	projectID, ok := s.ownedProjectForInsight(w, r)
+	if !ok {
+		return
+	}
+	out, err := lore.AliasSuggestions(r.Context(), s.st, projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid", "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"suggestions": out})
+}

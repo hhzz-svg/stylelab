@@ -83,6 +83,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/projects/{id}/graph/lineage", s.handleGraphLineage)
 	s.mux.HandleFunc("GET /api/projects/{id}/graph/places", s.handleGraphPlaces)
 	s.mux.HandleFunc("GET /api/projects/{id}/graph/cooccurrence", s.handleGraphCooccurrence)
+	s.mux.HandleFunc("GET /api/projects/{id}/graph/alias-suggestions", s.handleAliasSuggestions)
 	s.mux.HandleFunc("GET /api/chapters/{id}/scenes", s.handleChapterScenes)
 	s.mux.HandleFunc("POST /api/chapters/{id}/scenes/split", s.handleSplitChapterScenes)
 	s.mux.HandleFunc("PATCH /api/scenes/{id}", s.handleUpdateScene)

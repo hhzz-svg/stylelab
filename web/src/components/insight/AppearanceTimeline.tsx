@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, errMessage, notify } from '../../api'
-import type { Cooccurrence, GraphNode } from '../../types'
+import type { AliasSuggestion, Cooccurrence, GraphNode } from '../../types'
 
 type Props = {
   projectId: string
@@ -28,6 +28,10 @@ export default function AppearanceTimeline({ projectId, nodes, version, onSelect
   const [linking, setLinking] = useState('')
   const [splitting, setSplitting] = useState(false)
   const [refresh, setRefresh] = useState(0)
+  const [aliases, setAliases] = useState<AliasSuggestion[]>([])
+  // Ignored for this visit only: the prose may change the verdict later.
+  const [ignored, setIgnored] = useState<Set<string>>(new Set())
+  const [adopting, setAdopting] = useState('')
 
   useEffect(() => {
     let live = true
@@ -41,6 +45,12 @@ export default function AppearanceTimeline({ projectId, nodes, version, onSelect
         if (live) setError(errMessage(err, '加载出场时间线失败'))
       },
     )
+    api.aliasSuggestions(projectId).then(
+      (r) => {
+        if (live) setAliases(r.suggestions)
+      },
+      () => undefined,
+    )
     return () => {
       live = false
     }
@@ -48,6 +58,29 @@ export default function AppearanceTimeline({ projectId, nodes, version, onSelect
 
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const name = (id: string) => byId.get(id)?.name ?? '？'
+
+  async function adopt(s: AliasSuggestion) {
+    const node = byId.get(s.entity_id)
+    if (!node) return
+    setAdopting(s.alias)
+    try {
+      const current = Array.isArray(node.details?.aliases) ? node.details.aliases : []
+      await api.saveGraphNode(projectId, {
+        id: node.id,
+        name: node.name,
+        kind: node.kind,
+        faction: node.faction,
+        summary: node.summary,
+        details: { ...node.details, aliases: [...current, s.alias] },
+      })
+      notify(`已把「${s.alias}」记为「${node.name}」的别名`, 'success')
+      onGraphChanged()
+    } catch (err) {
+      notify(errMessage(err, '保存别名失败'), 'error')
+    } finally {
+      setAdopting('')
+    }
+  }
 
   async function link(a: string, b: string) {
     setLinking(a + b)
@@ -154,6 +187,49 @@ export default function AppearanceTimeline({ projectId, nodes, version, onSelect
       </div>
 
       <aside className="insight-panel timeline-side" aria-label="时间线洞察">
+        {aliases.some((s) => !ignored.has(s.alias)) ? (
+          <section className="insight-section">
+            <h3 className="insight-head">可能的别名</h3>
+            <ul className="plain-list">
+              {aliases
+                .filter((s) => !ignored.has(s.alias))
+                .map((s) => (
+                  <li key={s.alias}>
+                    <div className="alias-head">
+                      <span>
+                        <strong>{s.alias}</strong> → {name(s.entity_id)}
+                        <span className="timeline-total">
+                          {s.count} 次 · 把握 {Math.round(s.confidence * 100)}%
+                        </span>
+                        {s.ambiguous ? <span className="role-chip">存疑</span> : null}
+                      </span>
+                    </div>
+                    {s.examples[0] ? <p className="alias-example">{s.examples[0]}</p> : null}
+                    <div className="alias-actions">
+                      <button
+                        type="button"
+                        className="btn secondary sm"
+                        disabled={adopting === s.alias}
+                        onClick={() => void adopt(s)}
+                      >
+                        采纳
+                      </button>
+                      <button
+                        type="button"
+                        className="btn ghost sm"
+                        onClick={() => setIgnored((prev) => new Set(prev).add(s.alias))}
+                      >
+                        忽略
+                      </button>
+                    </div>
+                  </li>
+                ))}
+            </ul>
+            <p className="insight-note">
+              按「姓 + 称谓」（林师兄）和昵称（远儿、小远）在正文里找出的叫法。同姓的人按附近段落里出现的是谁来归属。采纳后出场统计会把它算进去。
+            </p>
+          </section>
+        ) : null}
         <section className="insight-section">
           <h3 className="insight-head">久未出场</h3>
           {report.absent.length === 0 ? (

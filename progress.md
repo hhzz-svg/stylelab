@@ -502,3 +502,15 @@ Plan (six phases, each committed and pushed on its own): importance ranking, com
 - Unit: the place vocabulary both ways; relations and the 所属 field build 东洲 → 青云山 → 藏经阁 while a sect named in 所属, characters and factions stay out; a loop of 位于 is cut.
 - Route: the path and the scenes per place from a split chapter; another user gets 404.
 - e2e: nesting top to bottom, "1 场" under 藏经阁, and its scene links to the chapter.
+
+## 2026-09-25 - Phase 8 — alias discovery
+
+### What was done
+- `insight.DiscoverAliases`: candidates from each character's name — surname + one of ~30 titles (师兄, 师妹, 长老, 公子, 姑娘, 兄, 前辈, 道友 …; compound surnames like 欧阳 and 慕容 split correctly) and pet forms (last character + 儿, 小/阿 + last character, and the given name alone when it is two characters). Candidates already used as someone's name or alias are skipped. Known names and candidates share one Aho–Corasick matcher, so a candidate inside a longer known name is not counted. Listed at two or more mentions, with up to three example snippets.
+- Shared surnames: evidence is a mention with the character's name in the same or a neighbouring paragraph; the candidate goes to the character with the most evidence, confidence = that share, and under 0.6 it is marked ambiguous (listed last).
+- `GET /api/projects/{id}/graph/alias-suggestions`; the timeline's side panel lists them (alias → character, count, confidence, 存疑, an example) with 采纳 (saves to `details.aliases`, and the counts update) and 忽略.
+
+### Testing
+- Unit: name splitting incl. compound surnames; candidate forms; a fixture where 林师兄 goes to 林远 with confidence exactly 2/3, 林师妹 to 林婉, 林姑娘 marked ambiguous, an existing alias and a single mention not suggested, ordering; a candidate inside the longer name 林远山 not counted; snippets. With disambiguation disabled the test fails (林师妹 would go to 林远).
+- Route: 林师兄 suggested with two examples; after adoption the suggestion is gone and 林远's total rises to 3; another user gets 404.
+- e2e: both suggestions appear with the right owners; 采纳 raises 林远's count from 2 to 4; 忽略 hides the other.

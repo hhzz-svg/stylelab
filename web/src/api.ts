@@ -1,4 +1,5 @@
 import type {
+  AliasSuggestion,
   AnalysisWeights,
   APIErrorBody,
   Asset,
@@ -395,6 +396,9 @@ export const api = {
 
   graphAnalysis: (projectId: string, weights: AnalysisWeights = 'graph') =>
     request<GraphAnalysis>(`/api/projects/${projectId}/graph/analysis?weights=${weights}`),
+
+  aliasSuggestions: (projectId: string) =>
+    request<{ suggestions: AliasSuggestion[] }>(`/api/projects/${projectId}/graph/alias-suggestions`),
 
   graphCooccurrence: (projectId: string) =>
     request<Cooccurrence>(`/api/projects/${projectId}/graph/cooccurrence`),

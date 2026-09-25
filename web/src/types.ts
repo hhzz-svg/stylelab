@@ -133,6 +133,18 @@ export type ChapterScenes = {
   stale: boolean
 }
 
+/** A name the prose seems to use for a character (insight.DiscoverAliases). */
+export type AliasSuggestion = {
+  entity_id: string
+  alias: string
+  count: number
+  /** The owner's share of the context evidence; 1 when no one else fits. */
+  confidence: number
+  /** Another character is about as likely to be meant. */
+  ambiguous: boolean
+  examples: string[]
+}
+
 /** A scene set at a place (its main location). */
 export type PlaceScene = {
   scene_id: string

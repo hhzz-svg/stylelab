@@ -129,3 +129,28 @@ test('appearance timeline counts aliases, flags the absent and suggests missing 
   await page.getByRole('radio', { name: '正文共现' }).click()
   await expect(page.locator('.insight-panel .rank-row').first()).toContainText('林远')
 })
+
+test('alias discovery proposes 林师兄 for 林远 and adopting it counts him there', async ({ page }) => {
+  const projectId = await setup(page)
+  await addNode(page, projectId, { name: '林远', kind: 'character' })
+  await addNode(page, projectId, { name: '林婉', kind: 'character' })
+  await addChapter(page, projectId, '一', '林远拔剑。\n林师兄的剑很快。\n林婉提灯而来。\n林师妹，夜深了。')
+  await addChapter(page, projectId, '二', '林远下山。\n林师兄一路无话。\n林婉追出山门，林师妹三个字卡在喉头。')
+
+  await page.goto(`/p/${projectId}/graph`)
+  await page.getByRole('tab', { name: /出场时间线/ }).click()
+  const heads = page.locator('.alias-head')
+  await expect(heads).toHaveCount(2)
+  await expect(heads.filter({ hasText: '林师兄' })).toContainText('林师兄 → 林远')
+  await expect(heads.filter({ hasText: '林师妹' })).toContainText('林师妹 → 林婉')
+
+  const lin = page.locator('.timeline-grid tbody tr', { hasText: '林远' })
+  await expect(lin.locator('.timeline-total')).toHaveText('2')
+  await page.locator('li', { has: page.locator('.alias-head', { hasText: '林师兄' }) }).getByRole('button', { name: '采纳' }).click()
+  await expect(lin.locator('.timeline-total')).toHaveText('4')
+  await expect(heads).toHaveCount(1)
+
+  // Ignoring hides the other one.
+  await page.getByRole('button', { name: '忽略' }).click()
+  await expect(heads).toHaveCount(0)
+})

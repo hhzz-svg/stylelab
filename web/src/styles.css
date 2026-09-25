@@ -5128,3 +5128,26 @@ div.chapter-neighbor-state {
 .place-scenes {
   margin-bottom: 0.8rem;
 }
+
+.alias-example {
+  margin: 0.3rem 0 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: var(--ink-faint);
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid var(--line-hi);
+}
+
+.alias-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.alias-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}

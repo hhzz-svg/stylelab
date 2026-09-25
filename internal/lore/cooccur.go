@@ -210,3 +210,21 @@ func textEdges(pairs []insight.Pair) []insight.Edge {
 	}
 	return out
 }
+
+// AliasSuggestions proposes aliases for the project's characters from the
+// written chapters, paragraph by paragraph.
+func AliasSuggestions(ctx context.Context, st *store.Store, projectID string) ([]insight.AliasSuggestion, error) {
+	w, err := LoadWorld(ctx, st, projectID)
+	if err != nil {
+		return nil, err
+	}
+	written, err := LoadWritten(ctx, st, projectID)
+	if err != nil {
+		return nil, err
+	}
+	chapters := make([]insight.CoChapter, len(written))
+	for i, c := range written {
+		chapters[i] = insight.CoChapter{Seq: c.Seq, Units: Paragraphs(c.Body)}
+	}
+	return insight.DiscoverAliases(w.entitiesOfKind("character"), chapters), nil
+}

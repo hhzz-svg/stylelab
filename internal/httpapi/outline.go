@@ -11,6 +11,7 @@ import (
 
 	"stylelab/internal/ids"
 	"stylelab/internal/job"
+	"stylelab/internal/lore"
 	"stylelab/internal/studio"
 	"stylelab/internal/write"
 )
@@ -32,7 +33,10 @@ type generateOutlineRequest struct {
 }
 
 type importOutlineRequest struct {
-	Chapters        []outlineChapterItem `json:"chapters"`
+	Chapters []outlineChapterItem `json:"chapters"`
+	// Volumes, when given, split the chapters in order: the first volume
+	// takes the first chapter_count chapters, and so on.
+	Volumes         []lore.OutlineVolume `json:"volumes"`
 	ReplaceExisting bool                 `json:"replace_existing"`
 	CardID          string               `json:"card_id"`
 }
@@ -114,6 +118,10 @@ func (s *Server) handleImportOutline(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Chapters) > maxOutlineChapters {
 		writeError(w, http.StatusBadRequest, "invalid", fmt.Sprintf("一次最多导入 %d 章", maxOutlineChapters))
+		return
+	}
+	if err := lore.ValidateOutlineVolumes(req.Volumes, len(req.Chapters)); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid", trimInvalid(err))
 		return
 	}
 
@@ -213,6 +221,14 @@ func (s *Server) handleImportOutline(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		insertedCount++
+	}
+
+	// Volumes pointing at or past the first new chapter described chapters
+	// that were just replaced or never existed; the outline's own volumes
+	// take their place.
+	if err := lore.ReplaceVolumesFrom(r.Context(), tx, projectID, startSeq, req.Volumes); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
 	}
 
 	if err := tx.Commit(); err != nil {

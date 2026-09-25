@@ -133,6 +133,43 @@ export type ChapterScenes = {
   stale: boolean
 }
 
+/** A volume: the chapters from start_seq up to the next volume. */
+export type Volume = {
+  id: string
+  start_seq: number
+  title: string
+  brief: string
+  updated_at: string
+}
+
+export type StructureScene = {
+  id: string
+  index: number
+  title: string
+  cue: SceneCue
+  cue_text: string
+  runes: number
+}
+
+export type StructureChapter = {
+  id: string
+  seq: number
+  title: string
+  status: string
+  runes: number
+  scenes: StructureScene[]
+  scenes_stale: boolean
+}
+
+/** A volume and its chapters; the leading group before any volume has id ''. */
+export type StructureVolume = Volume & {
+  chapters: StructureChapter[]
+  runes: number
+  written: number
+}
+
+export type Structure = { volumes: StructureVolume[] }
+
 /** A node of the lineage forest (see insight.BuildLineage). */
 export type LineageNode = {
   id: string

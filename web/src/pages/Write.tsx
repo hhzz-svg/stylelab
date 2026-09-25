@@ -1,6 +1,19 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { BookOpenText, Download, FileText, Plus, ShieldAlert, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import {
+  BookOpenText,
+  BookPlus,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  FileText,
+  Pencil,
+  Plus,
+  ShieldAlert,
+  Sparkles,
+  Trash2,
+  Wand2,
+} from 'lucide-react'
 import { APIError, api, errMessage, notify } from '../api'
 import { confirm } from '../components/ConfirmDialog'
 import ContinuityRadarModal from '../components/ContinuityRadarModal'
@@ -8,10 +21,14 @@ import Crumb from '../components/Crumb'
 import JobProgress from '../components/JobProgress'
 import OutlinePlannerModal from '../components/OutlinePlannerModal'
 import Skeleton from '../components/Skeleton'
+import VolumeDialog from '../components/VolumeDialog'
 import { usePageTitle } from '../hooks'
 import { registerJob } from '../jobs'
 import { rememberProject } from '../projectCache'
-import type { CardSummary, ChapterSummary, JobStatus } from '../types'
+import type { CardSummary, ChapterSummary, JobStatus, Structure, StructureChapter, Volume } from '../types'
+
+// Scenes listed under a chapter row before "共 N 个场景".
+const SCENES_SHOWN = 6
 
 const STATUS_LABEL: Record<string, string> = {
   draft: '未写',
@@ -27,6 +44,10 @@ export default function Write() {
   usePageTitle('章节目录')
 
   const [chapters, setChapters] = useState<ChapterSummary[] | null>(null)
+  // The volume -> chapter -> scene tree; null falls back to a flat list.
+  const [structure, setStructure] = useState<Structure | null>(null)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [volumeDialog, setVolumeDialog] = useState<{ volume?: Volume; startSeq?: number } | null>(null)
   const [cards, setCards] = useState<CardSummary[]>([])
   const [cardId, setCardId] = useState(params.get('card') ?? '')
   const [title, setTitle] = useState('')
@@ -52,12 +73,14 @@ export default function Write() {
   async function load() {
     if (!projectId) return
     try {
-      const [ch, c, p] = await Promise.all([
+      const [ch, c, p, st] = await Promise.all([
         api.listChapters(projectId),
         api.listCards(projectId),
         api.getProject(projectId).catch(() => null),
+        api.projectStructure(projectId).catch(() => null),
       ])
       setChapters(ch.chapters ?? [])
+      setStructure(st)
       setCards(c.cards ?? [])
       if (p) rememberProject(projectId, p.name)
       setError('')
@@ -172,6 +195,116 @@ export default function Write() {
   const list = chapters ?? []
   const written = list.filter((c) => c.status === 'written').length
   const totalRunes = list.reduce((sum, c) => sum + (c.rune_count || 0), 0)
+
+  const byId = new Map(list.map((c) => [c.id, c]))
+  const groups = structure?.volumes ?? null
+  const showVolumeHeads = !!groups && groups.some((g) => g.id)
+  const volumeStarts = new Set((groups ?? []).filter((g) => g.id).map((g) => g.start_seq))
+
+  function toggleVolume(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  async function onDeleteVolume(v: Volume) {
+    const ok = await confirm({
+      title: `删除分卷「${v.title}」？`,
+      body: '只删除分卷本身，章节和正文都会保留，并入上一卷。',
+      confirmText: '删除分卷',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await api.deleteVolume(v.id)
+      void load()
+    } catch (err) {
+      notify(errMessage(err, '删除分卷失败'), 'error')
+    }
+  }
+
+  function renderRow(ch: ChapterSummary, node?: StructureChapter) {
+    return (
+      <article key={ch.id} className="chapter-row">
+        <Link to={`/p/${projectId}/chapter/${ch.id}`} className="chapter-main">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+            <span className="chapter-seq-badge">第 {ch.seq} 章</span>
+            <h3 className="folio-title" style={{ fontSize: '1.25rem' }}>{ch.title}</h3>
+            <span
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                padding: '0.15rem 0.55rem',
+                borderRadius: '20px',
+                background: ch.status === 'written' ? 'rgba(45,212,191,0.15)' : ch.status === 'writing' ? 'rgba(247,203,104,0.15)' : 'rgba(255,255,255,0.06)',
+                color: ch.status === 'written' ? 'var(--jade-hi)' : ch.status === 'writing' ? 'var(--gold-hi)' : 'var(--ink-soft)',
+                border: `1px solid ${ch.status === 'written' ? 'rgba(45,212,191,0.3)' : ch.status === 'writing' ? 'rgba(247,203,104,0.3)' : 'rgba(255,255,255,0.1)'}`,
+              }}
+            >
+              {STATUS_LABEL[ch.status] ?? ch.status}
+            </span>
+          </div>
+          <p className="muted" style={{ margin: '0.4rem 0 0.2rem', lineHeight: 1.5 }}>
+            {ch.brief}
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.78rem', color: 'var(--ink-faint)', fontFamily: 'var(--mono)' }}>
+            {ch.rune_count ? <span>{ch.rune_count.toLocaleString()} 字</span> : <span>待撰写</span>}
+            {ch.has_summary && <span style={{ color: 'var(--gold-hi)' }}>· 已生成前情摘要</span>}
+            <span>· 更新于 {ch.updated_at.slice(0, 10)}</span>
+          </div>
+          {node && node.scenes.length > 0 ? (
+            <ol className="row-scenes" aria-label="本章场景">
+              {node.scenes.slice(0, SCENES_SHOWN).map((sc) => (
+                <li key={sc.id} title={sc.cue === 'transition' ? `${sc.cue_text} · ${sc.runes} 字` : `${sc.runes} 字`}>
+                  <span className="row-scene-no">{sc.index + 1}</span>
+                  {sc.title}
+                </li>
+              ))}
+              {node.scenes.length > SCENES_SHOWN ? <li className="row-scenes-more">共 {node.scenes.length} 个场景</li> : null}
+              {node.scenes_stale ? <li className="row-scenes-more">正文已改，场景待重新切分</li> : null}
+            </ol>
+          ) : null}
+        </Link>
+        <div className="chapter-actions">
+          {!volumeStarts.has(ch.seq) ? (
+            <button
+              className="btn ghost sm"
+              type="button"
+              title="从这一章开始新的一卷"
+              onClick={() => setVolumeDialog({ startSeq: ch.seq })}
+            >
+              <BookPlus size={15} />
+            </button>
+          ) : null}
+          <Link className="btn secondary sm" to={`/p/${projectId}/chapter/${ch.id}`}>
+            <FileText size={14} />
+            进入工作台
+          </Link>
+          <button
+            className="btn sm"
+            type="button"
+            disabled={jobActive && writingId === ch.id}
+            onClick={() => void onWrite(ch)}
+          >
+            <Sparkles size={14} />
+            {ch.rune_count > 0 ? '重写' : '写这一章'}
+          </button>
+          <button
+            className="btn ghost sm"
+            style={{ color: 'var(--cinnabar-hi)' }}
+            type="button"
+            onClick={() => void onDelete(ch)}
+            title="删除章节"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </article>
+    )
+  }
 
   return (
     <div className="page page-wide">
@@ -360,61 +493,55 @@ export default function Write() {
         </section>
       ) : (
         <div className="chapter-list">
-          {list.map((ch) => (
-            <article key={ch.id} className="chapter-row">
-              <Link to={`/p/${projectId}/chapter/${ch.id}`} className="chapter-main">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
-                  <span className="chapter-seq-badge">第 {ch.seq} 章</span>
-                  <h3 className="folio-title" style={{ fontSize: '1.25rem' }}>{ch.title}</h3>
-                  <span
-                    style={{
-                      fontSize: '0.72rem',
-                      fontWeight: 600,
-                      padding: '0.15rem 0.55rem',
-                      borderRadius: '20px',
-                      background: ch.status === 'written' ? 'rgba(45,212,191,0.15)' : ch.status === 'writing' ? 'rgba(247,203,104,0.15)' : 'rgba(255,255,255,0.06)',
-                      color: ch.status === 'written' ? 'var(--jade-hi)' : ch.status === 'writing' ? 'var(--gold-hi)' : 'var(--ink-soft)',
-                      border: `1px solid ${ch.status === 'written' ? 'rgba(45,212,191,0.3)' : ch.status === 'writing' ? 'rgba(247,203,104,0.3)' : 'rgba(255,255,255,0.1)'}`,
-                    }}
-                  >
-                    {STATUS_LABEL[ch.status] ?? ch.status}
-                  </span>
-                </div>
-                <p className="muted" style={{ margin: '0.4rem 0 0.2rem', lineHeight: 1.5 }}>
-                  {ch.brief}
-                </p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.78rem', color: 'var(--ink-faint)', fontFamily: 'var(--mono)' }}>
-                  {ch.rune_count ? <span>{ch.rune_count.toLocaleString()} 字</span> : <span>待撰写</span>}
-                  {ch.has_summary && <span style={{ color: 'var(--gold-hi)' }}>· 已生成前情摘要</span>}
-                  <span>· 更新于 {ch.updated_at.slice(0, 10)}</span>
-                </div>
-              </Link>
-              <div className="chapter-actions">
-                <Link className="btn secondary sm" to={`/p/${projectId}/chapter/${ch.id}`}>
-                  <FileText size={14} />
-                  进入工作台
-                </Link>
-                <button
-                  className="btn sm"
-                  type="button"
-                  disabled={jobActive && writingId === ch.id}
-                  onClick={() => void onWrite(ch)}
-                >
-                  <Sparkles size={14} />
-                  {ch.rune_count > 0 ? '重写' : '写这一章'}
-                </button>
-                <button
-                  className="btn ghost sm"
-                  style={{ color: 'var(--cinnabar-hi)' }}
-                  type="button"
-                  onClick={() => void onDelete(ch)}
-                  title="删除章节"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            </article>
-          ))}
+          {groups ? (
+            groups.map((g) => {
+              const key = g.id || 'lead'
+              const open = !collapsed.has(key)
+              const first = g.chapters[0]?.seq
+              const last = g.chapters[g.chapters.length - 1]?.seq
+              return (
+                <section key={key} className="volume-group" aria-label={g.id ? g.title : '未分卷'}>
+                  {showVolumeHeads ? (
+                    <header className={'volume-head' + (g.id ? '' : ' lead')}>
+                      <button
+                        type="button"
+                        className="volume-toggle"
+                        aria-expanded={open}
+                        onClick={() => toggleVolume(key)}
+                      >
+                        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        <span className="volume-title">{g.id ? g.title : '未分卷'}</span>
+                      </button>
+                      <span className="volume-stats">
+                        {g.chapters.length
+                          ? `第 ${first}${last !== first ? `–${last}` : ''} 章 · ${g.chapters.length} 章 · 已写 ${g.written} · ${g.runes.toLocaleString()} 字`
+                          : '暂无章节'}
+                      </span>
+                      {g.id ? (
+                        <span className="volume-actions">
+                          <button className="icon-btn sm" type="button" title="编辑分卷" onClick={() => setVolumeDialog({ volume: g })}>
+                            <Pencil size={13} />
+                          </button>
+                          <button className="icon-btn sm" type="button" title="删除分卷（章节保留）" onClick={() => void onDeleteVolume(g)}>
+                            <Trash2 size={13} />
+                          </button>
+                        </span>
+                      ) : null}
+                      {g.brief && open ? <p className="volume-brief">{g.brief}</p> : null}
+                    </header>
+                  ) : null}
+                  {open
+                    ? g.chapters.map((node) => {
+                        const ch = byId.get(node.id)
+                        return ch ? renderRow(ch, node) : null
+                      })
+                    : null}
+                </section>
+              )
+            })
+          ) : (
+            list.map((ch) => renderRow(ch))
+          )}
         </div>
       )}
 
@@ -430,6 +557,16 @@ export default function Write() {
           isOpen={outlineOpen}
           onClose={() => setOutlineOpen(false)}
           onImportSuccess={() => void load()}
+        />
+      ) : null}
+
+      {volumeDialog ? (
+        <VolumeDialog
+          projectId={projectId}
+          volume={volumeDialog.volume}
+          startSeq={volumeDialog.startSeq}
+          onClose={() => setVolumeDialog(null)}
+          onSaved={() => void load()}
         />
       ) : null}
 

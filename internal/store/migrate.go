@@ -167,6 +167,19 @@ CREATE TABLE IF NOT EXISTS chapter_scenes (
   updated_at TEXT NOT NULL,
   UNIQUE (chapter_id, idx)
 );
+-- A volume covers the chapters from start_seq up to the next volume's
+-- start. Keyed by seq rather than by chapter id, so deleting or inserting
+-- chapters never needs a volume updated.
+CREATE TABLE IF NOT EXISTS volumes (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  start_seq INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  brief TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_id, start_seq)
+);
 
 -- Performance & Query Optimization Indexes
 CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id, created_at DESC);

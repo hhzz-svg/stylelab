@@ -24,7 +24,9 @@ import type {
   SampleChapter,
   SceneRecord,
   StudioLatest,
+  Structure,
   StyleCard,
+  Volume,
 } from './types'
 
 export class APIError extends Error {
@@ -361,6 +363,16 @@ export const api = {
       method: 'DELETE',
     }),
 
+  projectStructure: (projectId: string) => request<Structure>(`/api/projects/${projectId}/structure`),
+
+  createVolume: (projectId: string, v: { start_seq: number; title: string; brief?: string }) =>
+    request<Volume>(`/api/projects/${projectId}/volumes`, { method: 'POST', body: JSON.stringify(v) }),
+
+  updateVolume: (volumeId: string, v: { start_seq?: number; title?: string; brief?: string }) =>
+    request<Volume>(`/api/volumes/${volumeId}`, { method: 'PATCH', body: JSON.stringify(v) }),
+
+  deleteVolume: (volumeId: string) => request<{ ok: boolean }>(`/api/volumes/${volumeId}`, { method: 'DELETE' }),
+
   chapterScenes: (chapterId: string) => request<ChapterScenes>(`/api/chapters/${chapterId}/scenes`),
 
   splitScenes: (chapterId: string) =>
@@ -410,6 +422,8 @@ export const api = {
     projectId: string,
     params: {
       chapters: OutlineChapterItem[]
+      /** Split the chapters in order, chapter_count at a time. */
+      volumes?: { title: string; brief: string; chapter_count: number }[]
       replace_existing?: boolean
       card_id?: string
     },

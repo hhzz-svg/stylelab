@@ -119,6 +119,12 @@ export default function OutlinePlannerModal({
     try {
       const res = await api.importOutline(projectId, {
         chapters: allChapters,
+        // Keep the volumes: they become the 卷 of the book's structure tree.
+        volumes: outline.volumes.map((v) => ({
+          title: v.volume_title,
+          brief: v.volume_brief,
+          chapter_count: v.chapters?.length ?? 0,
+        })),
         replace_existing: replaceExisting,
         card_id: cardId || undefined,
       })

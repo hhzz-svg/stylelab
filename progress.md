@@ -473,3 +473,19 @@ Plan (six phases, each committed and pushed on its own): importance ranking, com
 - Unit: three topical sections split at the right paragraphs with transitions, and again with no cue words at all (vocabulary and cast alone — the similarity curve bottoms out at 0.02 and 0.01 exactly at the breaks); uniform text stays whole; separators always cut and never appear inside a scene, edge separators and a dash inside prose do not cut; the minimum length refuses a one-line tail; empty and single-paragraph bodies; the transition pattern both ways.
 - Route: split → 3 scenes with the right cast, location and cue; renaming; a changed body reads stale and co-occurrence falls back to paragraphs; deleting the chapter deletes its scenes; an empty chapter is 400; split-all counts; another user gets 404 on all four routes.
 - e2e: split in the workbench, the selection covers exactly scene 2's text, a rename survives a reload, the timeline counts by scene; split-all from the timeline.
+
+## 2026-09-25 - Phase 6 — narrative structure tree
+
+### What was done
+- New table `volumes` (project, `start_seq`, title, brief; unique start). A volume holds the chapters from its start up to the next volume's, so adding chapters needs no volume update.
+- `lore`: volume create / edit / delete with validation; `groupByVolume` (pure) and `LoadStructure` build volume → chapter → scene, with per-volume chapter, written and rune counts and per-chapter scene staleness; chapters before the first volume form an unnamed leading group.
+- Outline import takes `volumes: [{title, brief, chapter_count}]` (counts must add up, checked before anything is written), creates them where their chapters land, and drops volumes that pointed at replaced or non-existent chapters. The outline planner now sends them instead of flattening.
+- Write page: the chapter list is the tree — collapsible volume headers with range and totals, ✎ / delete, "从这一章开始新的一卷" on each row, and each chapter's scenes as chips.
+
+### Found while testing
+- **Deleting a chapter renumbers every later one, which would have left each later volume one chapter too late** (and the last one empty). `write.DeleteAndRenumber` now shifts volumes in the same transaction: a volume that held only the deleted chapter is removed, and later volumes move up via negative values so the unique start index never sees two volumes on one chapter mid-update (the test creates volumes last-first to exercise that). The test fails with the shift removed.
+
+### Testing
+- Unit: grouping with a leading group, a volume starting at a deleted chapter, an empty volume, totals; outline volume validation.
+- Route: volumes shape the tree; duplicate start, blank title and start < 1 are 400; moving and deleting volumes; scenes hang under their chapter and go stale with the body; another user gets 404 on all four routes; outline import with volumes, a mismatched import writes nothing, a replacing import replaces the volumes; volumes follow chapter deletes.
+- e2e: build two volumes from the rows, collapse one, see scenes under chapter 1, delete a chapter and see the second volume still start at 入城; import a generated outline and get its volume.

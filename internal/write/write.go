@@ -14,6 +14,7 @@ import (
 	"stylelab/internal/job"
 	"stylelab/internal/llm"
 	"stylelab/internal/llmkey"
+	"stylelab/internal/lore"
 	"stylelab/internal/store"
 )
 
@@ -477,6 +478,10 @@ func DeleteAndRenumber(ctx context.Context, st *store.Store, userID, chapterID s
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE chapters SET seq = seq - 1 WHERE project_id=? AND seq > ?`, ch.ProjectID, ch.Seq); err != nil {
+		return err
+	}
+	// Volumes are keyed by the chapter they start at; move them with it.
+	if err := lore.ShiftVolumesAfterDelete(ctx, tx, ch.ProjectID, ch.Seq); err != nil {
 		return err
 	}
 	return tx.Commit()
